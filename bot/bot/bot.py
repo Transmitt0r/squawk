@@ -95,20 +95,17 @@ def _debug(config: Config, runner: Runner):
 
 
 async def _send_digest(bot: Bot, chat_id: int, digest: DigestOutput) -> None:
-    """Send digest to a single chat, with photo if the agent found one."""
+    """Send digest text, then a follow-up photo if the agent found one."""
+    await bot.send_message(chat_id=chat_id, text=digest.text)
     if digest.photo_url:
         try:
             await bot.send_photo(
                 chat_id=chat_id,
                 photo=digest.photo_url,
-                caption=digest.text[:1024],
+                caption=digest.photo_caption or None,
             )
-            if len(digest.text) > 1024:
-                await bot.send_message(chat_id=chat_id, text=digest.text[1024:])
-            return
         except Exception:
-            logger.warning("Failed to send photo to chat_id=%d, falling back to text", chat_id)
-    await bot.send_message(chat_id=chat_id, text=digest.text)
+            logger.warning("Failed to send follow-up photo to chat_id=%d", chat_id)
 
 
 async def broadcast(config: Config, digest: DigestOutput) -> None:

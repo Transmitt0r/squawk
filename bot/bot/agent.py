@@ -25,6 +25,7 @@ APP_NAME = "adsb_digest"
 class DigestOutput(BaseModel):
     text: str
     photo_url: str | None = None
+    photo_caption: str | None = None
 
 SYSTEM_PROMPT = """
 You are a friendly aviation digest writer. Your job is to create an engaging,
@@ -72,7 +73,8 @@ Guidelines:
     🏆 Fleißigste Airline: <top operator prefix and count>
     📏 Weiteste Sichtung: <furthest hex/callsign, distance in km, rounded>
     ⛰️ Höchster Flug: <highest hex/callsign, altitude in meters>
-- If lookup_photo returns a photo_url, include it in the photo_url output field
+- If lookup_photo returns a photo_url, include it in the photo_url field and write a short
+  one-line caption in photo_caption (e.g. "📸 N373GG — Bombardier Global 5000 der Artoc Group")
 
 Workflow:
 1. Call get_sightings, get_records, get_new_aircraft, and get_squawk_alerts in parallel
@@ -83,7 +85,7 @@ Workflow:
 6. Write the digest prose, then append the Fakten section
 7. Finally, output the result as a JSON code block and nothing else after it:
    ```json
-   {"text": "<full digest including Fakten>", "photo_url": "<url or null>"}
+   {"text": "<full digest including Fakten>", "photo_url": "<url or null>", "photo_caption": "<one-line caption or null>"}
    ```
 """.strip()
 
