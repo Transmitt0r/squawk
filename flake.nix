@@ -27,6 +27,7 @@
           default = pkgs.mkShell {
             packages = [
               python
+              pkgs.uv
               pkgs.ruff
               pkgs.mypy
               pkgs.postgresql
@@ -35,7 +36,7 @@
             shellHook = ''
               echo "flighttracker dev shell"
               echo "  collector: cd collector && python -m collector"
-              echo "  digest:    cd digest && python -m app"
+              echo "  bot:       cd bot && python -m app"
             '';
           };
         });

@@ -7,8 +7,8 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project
 
-COPY collector/ collector/
+COPY bot/ bot/
 RUN uv sync --locked --no-dev
 
 ENV PATH="/app/.venv/bin:$PATH"
-CMD ["python", "-m", "collector"]
+CMD ["python", "-m", "bot"]

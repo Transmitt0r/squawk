@@ -1,5 +1,5 @@
 [project]
-name = "adsb-digest"
+name = "squawk-bot"
 version = "0.1.0"
 description = "Weekly ADS-B flight digest agent via Telegram"
 requires-python = ">=3.13"

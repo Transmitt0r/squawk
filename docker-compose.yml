@@ -1,0 +1,43 @@
+services:
+  db:
+    image: timescale/timescaledb:2.26.3-pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: squawk
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: squawk
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U squawk"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  collector:
+    image: ghcr.io/transmitt0r/squawk/collector:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ADSB_URL: ${ADSB_URL}
+      POLL_INTERVAL: ${POLL_INTERVAL:-5}
+      SESSION_TIMEOUT: ${SESSION_TIMEOUT:-300}
+      DATABASE_URL: ${DATABASE_URL}
+
+  bot:
+    image: ghcr.io/transmitt0r/squawk/bot:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      ADMIN_CHAT_ID: ${ADMIN_CHAT_ID:-}
+      DIGEST_SCHEDULE: ${DIGEST_SCHEDULE:-0 8 * * 0}
+
+volumes:
+  db_data:

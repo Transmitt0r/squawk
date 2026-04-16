@@ -10,8 +10,7 @@ from dataclasses import dataclass
 class Config:
     bot_token: str
     anthropic_api_key: str
-    database_url: str           # bot's own postgres (users + digest cache)
-    collector_database_url: str  # timescaledb (flight data, read-only)
+    database_url: str           # shared TimescaleDB (flight data + bot state)
     admin_chat_id: int | None   # chat ID allowed to use /debug
     digest_schedule: str        # cron expression, default Sunday 8am
 
@@ -22,7 +21,6 @@ class Config:
             bot_token=os.environ["BOT_TOKEN"],
             anthropic_api_key=os.environ["ANTHROPIC_API_KEY"],
             database_url=os.environ["DATABASE_URL"],
-            collector_database_url=os.environ["COLLECTOR_DATABASE_URL"],
             admin_chat_id=int(admin) if admin else None,
             digest_schedule=os.environ.get("DIGEST_SCHEDULE", "0 8 * * 0"),
         )

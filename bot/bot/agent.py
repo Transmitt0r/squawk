@@ -51,7 +51,7 @@ Workflow:
 
 
 def create_runner(config: Config) -> Runner:
-    tools = make_tools(config.collector_database_url)
+    tools = make_tools(config.database_url)
     agent = LlmAgent(
         model=LiteLlm(model="anthropic/claude-haiku-4-5-20251001"),
         name="flight_digest_agent",

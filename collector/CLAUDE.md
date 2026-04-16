@@ -16,10 +16,9 @@ collector/
     db.py           ← asyncpg pool + schema init
     schema.sql      ← TimescaleDB schema
   tests/            ← pytest test suite
-  docker-compose.yml ← TimescaleDB + collector (NAS)
-  Dockerfile        ← builds ghcr.io/transmitt0r/adsb-collector
+  Dockerfile        ← builds ghcr.io/transmitt0r/squawk/collector
   pyproject.toml
-  .env.example
+  uv.lock
 ```
 
 ## Key facts
@@ -39,16 +38,16 @@ nix develop
 
 # then from collector/
 cd collector
-pytest
-ruff check collector tests
-ruff format --check collector tests
-mypy collector
-python -m collector
+uv run pytest
+uv run ruff check collector tests
+uv run mypy collector
+uv run python -m collector
 ```
 
 ## Deploy
 
+Via the root `docker-compose.yml` (together with the bot and shared TimescaleDB):
 ```bash
-cd collector
+# from repo root
 docker compose up -d
 ```

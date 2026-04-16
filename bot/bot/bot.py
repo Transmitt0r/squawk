@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def build_app(config: Config, runner: Runner, scheduler) -> Application:
-    async def _post_start(app: Application) -> None:
+    async def _post_init(app: Application) -> None:
         scheduler.start()
         logger.info("Scheduler started")
 
@@ -26,7 +26,7 @@ def build_app(config: Config, runner: Runner, scheduler) -> Application:
     app = (
         Application.builder()
         .token(config.bot_token)
-        .post_start(_post_start)
+        .post_init(_post_init)
         .post_stop(_post_stop)
         .build()
     )

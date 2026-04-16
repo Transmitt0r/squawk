@@ -13,8 +13,8 @@ services:
       TZ: Europe/Berlin
       READSB_DEVICE_TYPE: rtlsdr
       READSB_GAIN: autogain
-      READSB_LAT: YOUR_LAT
-      READSB_LON: YOUR_LON
+      READSB_LAT: ${READSB_LAT}
+      READSB_LON: ${READSB_LON}
       READSB_MAX_RANGE: 450
       READSB_NET_ENABLE: "true"
       READSB_NET_HEARTBEAT: 60
@@ -48,7 +48,7 @@ services:
       GZIP_LVL: 1
       PTRACKS: 8
     ports:
-      - "80:80"
+      - "8080:80"
 
   fr24feed:
     image: ghcr.io/sdr-enthusiasts/docker-flightradar24:latest
@@ -60,7 +60,7 @@ services:
       - 192.168.0.1
     environment:
       TZ: Europe/Berlin
-      FR24KEY: YOUR_FR24_KEY_HERE
+      FR24KEY: ${FR24KEY}
       BEASTHOST: readsb
       BEASTPORT: 30005
       MLAT: "no"
