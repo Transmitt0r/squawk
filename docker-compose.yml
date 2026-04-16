@@ -15,7 +15,8 @@ services:
       retries: 10
 
   collector:
-    image: ghcr.io/transmitt0r/squawk/collector:latest
+    build:
+      context: collector/
     restart: unless-stopped
     depends_on:
       db:
@@ -27,7 +28,8 @@ services:
       DATABASE_URL: ${DATABASE_URL}
 
   bot:
-    image: ghcr.io/transmitt0r/squawk/bot:latest
+    build:
+      context: bot/
     restart: unless-stopped
     depends_on:
       db:
