@@ -147,16 +147,17 @@ def make_tools(collector_database_url: str) -> list:
                     """, {"days": days, "limit": limit})
                     rows = cur.fetchall()
 
-            result = []
+            lines = ["hex,callsign,started_at_utc,duration_min,max_alt_ft,min_dist_nm"]
             for r in rows:
-                d = dict(r)
-                d["started_at"] = d["started_at"].isoformat() if d["started_at"] else None
-                for k in ("duration_minutes", "max_altitude", "min_distance"):
-                    if d[k] is not None:
-                        d[k] = float(d[k])
-                result.append(d)
-
-            return json.dumps({"sightings": result})
+                lines.append(
+                    f"{r['hex']},"
+                    f"{r['callsign'] or ''},"
+                    f"{r['started_at'].strftime('%Y-%m-%dT%H:%M') if r['started_at'] else ''},"
+                    f"{round(float(r['duration_minutes']), 1) if r['duration_minutes'] else ''},"
+                    f"{int(r['max_altitude']) if r['max_altitude'] else ''},"
+                    f"{round(float(r['min_distance']), 1) if r['min_distance'] else ''}"
+                )
+            return "\n".join(lines)
         except Exception as exc:
             logger.exception("get_top_sightings failed")
             return json.dumps({"error": str(exc)})
@@ -258,49 +259,43 @@ def make_tools(collector_database_url: str) -> list:
     def get_new_aircraft(days: int = 7) -> str:
         """Get aircraft seen by our receiver for the very first time during the past N days.
 
-        Returns the 10 most recent first-time visitors with hex, first_seen,
-        callsigns, max_altitude (feet), and min_distance (nautical miles).
+        Returns a compact CSV list: hex, callsign, first_seen_utc.
+        Total count is also returned. Use lookup_aircraft(hex) to get full
+        details (type, operator, registration) for any that look interesting.
 
         Args:
             days: How many days back to look (default 7).
         """
         try:
             with psycopg2.connect(collector_database_url) as conn:
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                with conn.cursor() as cur:
                     cur.execute("""
-                        SELECT
-                            a.hex,
-                            a.first_seen,
-                            a.callsigns,
-                            s.callsign,
-                            s.max_altitude,
-                            s.max_distance
+                        SELECT a.hex, s.callsign, a.first_seen
                         FROM aircraft a
                         LEFT JOIN LATERAL (
-                            SELECT callsign, max_altitude, max_distance
-                            FROM sightings
+                            SELECT callsign FROM sightings
                             WHERE hex = a.hex
-                            ORDER BY started_at DESC
-                            LIMIT 1
+                              AND callsign IS NOT NULL
+                            ORDER BY started_at DESC LIMIT 1
                         ) s ON true
                         WHERE a.first_seen > now() - (%(days)s || ' days')::interval
                         ORDER BY a.first_seen DESC
-                        LIMIT 10
+                        LIMIT 20
                     """, {"days": days})
                     rows = cur.fetchall()
 
-            result = []
-            for r in rows:
-                d = dict(r)
-                if d.get("first_seen"):
-                    d["first_seen"] = d["first_seen"].isoformat()
-                if d.get("max_altitude") is not None:
-                    d["max_altitude"] = int(d["max_altitude"])
-                if d.get("max_distance") is not None:
-                    d["max_distance"] = float(d["max_distance"])
-                result.append(d)
+                    cur.execute("""
+                        SELECT COUNT(*) FROM aircraft
+                        WHERE first_seen > now() - (%(days)s || ' days')::interval
+                    """, {"days": days})
+                    total = cur.fetchone()[0]
 
-            return json.dumps({"new_aircraft_count": len(result), "new_aircraft": result}, default=str)
+            lines = ["hex,callsign,first_seen_utc"]
+            for hex_, callsign, first_seen in rows:
+                lines.append(f"{hex_},{callsign or ''},"
+                             f"{first_seen.strftime('%Y-%m-%dT%H:%M') if first_seen else ''}")
+
+            return f"total_new:{total}\n" + "\n".join(lines)
         except Exception as exc:
             logger.exception("get_new_aircraft failed")
             return json.dumps({"error": str(exc)})
