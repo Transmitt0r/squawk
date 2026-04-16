@@ -56,7 +56,7 @@ def make_tools(collector_database_url: str) -> list:
                         FROM sightings s
                         WHERE s.started_at > now() - (%(days)s || ' days')::interval
                         ORDER BY s.min_distance ASC NULLS LAST
-                        LIMIT 50
+                        LIMIT 25
                     """, {"days": days})
                     rows = cur.fetchall()
 
@@ -219,6 +219,7 @@ def make_tools(collector_database_url: str) -> list:
                         ) s ON true
                         WHERE a.first_seen > now() - (%(days)s || ' days')::interval
                         ORDER BY a.first_seen DESC
+                        LIMIT 10
                     """, {"days": days})
                     rows = cur.fetchall()
 
