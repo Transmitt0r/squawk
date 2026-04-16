@@ -2,15 +2,12 @@ services:
   db:
     image: timescale/timescaledb:2.26.3-pg17
     restart: unless-stopped
-    user: "999:999"
     environment:
       POSTGRES_USER: squawk
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: squawk
     volumes:
-      - /mnt/nas/appdata/squawk/db:/var/lib/postgresql/data
-    tmpfs:
-      - /var/run/postgresql:mode=0777
+      - db_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U squawk"]
       interval: 5s
@@ -41,3 +38,6 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       ADMIN_CHAT_ID: ${ADMIN_CHAT_ID:-}
       DIGEST_SCHEDULE: ${DIGEST_SCHEDULE:-0 8 * * 0}
+
+volumes:
+  db_data:
