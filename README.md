@@ -22,7 +22,7 @@ This repo has two responsibilities:
 The collector polls:
 
 ```
-http://flighttracker.local/tar1090/data/aircraft.json
+http://<pi-ip>/data/aircraft.json
 ```
 
 Response shape:

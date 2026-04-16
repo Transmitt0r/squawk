@@ -25,9 +25,9 @@ feeder/
 
 - RTL-SDR dongle is passed through via `devices: [/dev/bus/usb:/dev/bus/usb]`
 - tar1090 serves at `http://flighttracker.local/data/aircraft.json` (no `/tar1090/` prefix)
-- `dns: [127.0.0.11, 192.168.0.1]` is required for inter-container name resolution on this Pi
+- `dns: [127.0.0.11, <router-ip>]` is required for inter-container name resolution on this Pi
 - Coordinates and FR24 key are set directly in docker-compose.yml on the Pi (not committed)
-- FR24 key: see 1Password (never commit)
+- FR24 key: never commit — set via environment only
 
 ## Deploy
 

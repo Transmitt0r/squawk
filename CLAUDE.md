@@ -28,6 +28,6 @@ Each component has its own `pyproject.toml`. Run tools from within the component
 ## Infrastructure
 
 - **Pi:** `tracker@flighttracker.local` — runs the feeder stack
-- **NAS:** `192.168.0.5` — runs collector (port 5431) and digest stacks
-- **Data endpoint:** `http://192.168.0.111/data/aircraft.json`
+- **NAS:** runs collector (port 5431) and digest stacks
+- **Data endpoint:** `http://<pi-ip>/data/aircraft.json`
 - **TimescaleDB:** port 5431 on NAS
