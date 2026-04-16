@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: squawk
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - /mnt/nas/appdata/squawk/db:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U squawk"]
       interval: 5s
@@ -39,5 +39,3 @@ services:
       ADMIN_CHAT_ID: ${ADMIN_CHAT_ID:-}
       DIGEST_SCHEDULE: ${DIGEST_SCHEDULE:-0 8 * * 0}
 
-volumes:
-  db_data:
