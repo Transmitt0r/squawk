@@ -67,8 +67,9 @@ def get_active_users(database_url: str) -> list[int]:
         return [row[0] for row in cur.fetchall()]
 
 
-def get_cached_digest(database_url: str, period_start: datetime, period_end: datetime) -> str | None:
-    """Return cached digest for this period if it exists."""
+def get_cached_digest(database_url: str, period_start: datetime, period_end: datetime):
+    """Return cached DigestOutput for this period if it exists."""
+    from .agent import DigestOutput  # local import to avoid circular dependency
     with get_conn(database_url) as conn, conn.cursor() as cur:
         cur.execute("""
             SELECT content FROM digests
@@ -76,13 +77,15 @@ def get_cached_digest(database_url: str, period_start: datetime, period_end: dat
             ORDER BY created_at DESC LIMIT 1
         """, (period_start, period_end))
         row = cur.fetchone()
-        return row[0] if row else None
+        if row is None:
+            return None
+        return DigestOutput.model_validate_json(row[0])
 
 
-def cache_digest(database_url: str, period_start: datetime, period_end: datetime, content: str) -> None:
+def cache_digest(database_url: str, period_start: datetime, period_end: datetime, digest) -> None:
     """Store a generated digest."""
     with get_conn(database_url) as conn, conn.cursor() as cur:
         cur.execute("""
             INSERT INTO digests (period_start, period_end, content)
             VALUES (%s, %s, %s)
-        """, (period_start, period_end, content))
+        """, (period_start, period_end, digest.model_dump_json()))

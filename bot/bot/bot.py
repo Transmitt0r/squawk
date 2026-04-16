@@ -7,7 +7,7 @@ import logging
 from telegram import Bot, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-from .agent import Runner, generate_digest
+from .agent import DigestOutput, Runner, generate_digest
 from .config import Config
 from .db import get_active_users, register_user, unregister_user
 
@@ -84,8 +84,9 @@ def _debug(config: Config, runner: Runner):
 
         await update.message.reply_text("⏳ Generiere Digest… (kann eine Minute dauern)")
         try:
-            text = await generate_digest(runner, days=1)
-            await update.message.reply_text(text)
+            digest = await generate_digest(runner, days=1)
+            bot = update.get_bot()
+            await _send_digest(bot, update.effective_chat.id, digest)
         except Exception as exc:
             logger.exception("Debug digest failed")
             await update.message.reply_text(f"❌ Fehler: {exc}")
@@ -93,14 +94,24 @@ def _debug(config: Config, runner: Runner):
     return handler
 
 
-async def broadcast(config: Config, text: str) -> None:
-    """Send text to all registered users."""
+async def _send_digest(bot: Bot, chat_id: int, digest: DigestOutput) -> None:
+    """Send digest to a single chat, with photo if the agent found one."""
+    if digest.photo_url:
+        try:
+            await bot.send_photo(chat_id=chat_id, photo=digest.photo_url)
+        except Exception:
+            logger.warning("Failed to send photo to chat_id=%d, continuing", chat_id)
+    await bot.send_message(chat_id=chat_id, text=digest.text)
+
+
+async def broadcast(config: Config, digest: DigestOutput) -> None:
+    """Send digest to all registered users."""
     chat_ids = get_active_users(config.database_url)
     logger.info("Broadcasting digest to %d users", len(chat_ids))
     bot = Bot(token=config.bot_token)
     async with bot:
         for chat_id in chat_ids:
             try:
-                await bot.send_message(chat_id=chat_id, text=text)
+                await _send_digest(bot, chat_id, digest)
             except Exception:
                 logger.exception("Failed to send to chat_id=%d", chat_id)

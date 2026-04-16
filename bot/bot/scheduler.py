@@ -27,16 +27,15 @@ async def run_weekly_digest(config: Config, runner: Runner) -> None:
     period_start, period_end = _week_bounds()
 
     # Use cached digest if already generated for this period
-    cached = get_cached_digest(config.database_url, period_start, period_end)
-    if cached:
+    digest = get_cached_digest(config.database_url, period_start, period_end)
+    if digest:
         logger.info("Using cached digest")
-        text = cached
     else:
         logger.info("Generating new digest")
-        text = await generate_digest(runner, days=7)
-        cache_digest(config.database_url, period_start, period_end, text)
+        digest = await generate_digest(runner, days=7)
+        cache_digest(config.database_url, period_start, period_end, digest)
 
-    await broadcast(config, text)
+    await broadcast(config, digest)
     logger.info("Weekly digest sent")
 
 
