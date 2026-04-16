@@ -51,13 +51,12 @@ def make_tools(collector_database_url: str) -> list:
                             s.ended_at,
                             EXTRACT(EPOCH FROM (COALESCE(s.ended_at, now()) - s.started_at)) / 60
                                 AS duration_minutes,
-                            s.min_altitude,
                             s.max_altitude,
-                            s.min_distance,
-                            s.max_distance
+                            s.min_distance
                         FROM sightings s
                         WHERE s.started_at > now() - (%(days)s || ' days')::interval
-                        ORDER BY s.started_at DESC
+                        ORDER BY s.min_distance ASC NULLS LAST
+                        LIMIT 50
                     """, {"days": days})
                     rows = cur.fetchall()
 
@@ -77,8 +76,7 @@ def make_tools(collector_database_url: str) -> list:
                 for k in ("started_at", "ended_at"):
                     if s[k] is not None:
                         s[k] = s[k].isoformat()
-                for k in ("duration_minutes", "min_altitude", "max_altitude",
-                          "min_distance", "max_distance"):
+                for k in ("duration_minutes", "max_altitude", "min_distance"):
                     if s[k] is not None:
                         s[k] = float(s[k])
 
