@@ -65,20 +65,23 @@ Key fields per aircraft:
 ## Repo Structure
 
 ```
-flighttracker/
-├── collector/          # Python historization service
-│   ├── __main__.py     # Entry point (python -m collector)
-│   ├── config.py       # Configuration via env vars
-│   ├── models.py       # AircraftState dataclass
-│   ├── poller.py       # HTTP polling of aircraft.json
-│   ├── tracker.py      # Session state machine → DB writes
-│   ├── db.py           # asyncpg pool + schema init
-│   └── schema.sql      # PostgreSQL/TimescaleDB schema
-├── feeder/             # Feeder configuration files (synced to Pi)
-├── tests/              # Pytest test suite
-├── Dockerfile          # Collector container image
-├── docker-compose.yml  # Collector + TimescaleDB stack
-└── .env.example        # Required environment variables
+adsb-collector/
+├── collector/                  # ADS-B data collector service
+│   ├── docker-compose.yml      # TimescaleDB + collector stack (NAS)
+│   ├── __main__.py             # Entry point (python -m collector)
+│   ├── config.py               # Configuration via env vars
+│   ├── models.py               # AircraftState dataclass
+│   ├── poller.py               # HTTP polling of aircraft.json
+│   ├── tracker.py              # Session state machine → DB writes
+│   ├── db.py                   # asyncpg pool + schema init
+│   └── schema.sql              # PostgreSQL/TimescaleDB schema
+├── digest/                     # Weekly flight digest agent
+│   └── docker-compose.yml      # Digest agent stack (NAS)
+├── feeder/                     # Pi feeder stack
+│   └── docker-compose.yml      # readsb + tar1090 + fr24feed (Pi)
+├── tests/                      # Pytest test suite
+├── Dockerfile                  # Collector container image
+└── .env.example                # Required environment variables
 ```
 
 ## Database Schema
@@ -96,6 +99,7 @@ Three tables in PostgreSQL (TimescaleDB):
 ```bash
 cp .env.example .env
 # Edit .env with your values
+cd collector
 
 docker compose up -d
 ```
