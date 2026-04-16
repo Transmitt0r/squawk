@@ -6,6 +6,9 @@ services:
       - "c 189:* rwm"
     devices:
       - /dev/bus/usb:/dev/bus/usb
+    dns:
+      - 127.0.0.11
+      - 192.168.0.1
     environment:
       TZ: Europe/Berlin
       READSB_DEVICE_TYPE: rtlsdr
@@ -33,6 +36,9 @@ services:
     restart: unless-stopped
     depends_on:
       - readsb
+    dns:
+      - 127.0.0.11
+      - 192.168.0.1
     environment:
       TZ: Europe/Berlin
       BEASTHOST: readsb
@@ -49,6 +55,9 @@ services:
     restart: unless-stopped
     depends_on:
       - readsb
+    dns:
+      - 127.0.0.11
+      - 192.168.0.1
     environment:
       TZ: Europe/Berlin
       FR24KEY: YOUR_FR24_KEY_HERE
