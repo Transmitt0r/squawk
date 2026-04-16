@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 
 from google.adk.agents import LlmAgent
@@ -80,9 +81,10 @@ Workflow:
 4. Call lookup_aircraft for interesting ones to get operator/type info
 5. Call lookup_photo for the single most interesting aircraft
 6. Write the digest prose, then append the Fakten section
-7. Finally, output ONLY a JSON object on a single line with this exact structure:
+7. Finally, output the result as a JSON code block and nothing else after it:
+   ```json
    {"text": "<full digest including Fakten>", "photo_url": "<url or null>"}
-   No other text before or after the JSON.
+   ```
 """.strip()
 
 
@@ -135,11 +137,10 @@ async def generate_digest(runner: Runner, days: int = 7) -> DigestOutput:
     if not final_text:
         raise RuntimeError("Agent produced no output")
 
-    # Extract the JSON object the agent was instructed to output last
-    start = final_text.rfind("{")
-    end = final_text.rfind("}") + 1
-    if start == -1 or end == 0:
-        raise RuntimeError(f"No JSON found in agent output: {final_text!r}")
-    result = DigestOutput.model_validate_json(final_text[start:end])
+    # Extract JSON from ```json ... ``` code block
+    match = re.search(r"```json\s*(\{.*?\})\s*```", final_text, re.DOTALL)
+    if not match:
+        raise RuntimeError(f"No JSON block found in agent output: {final_text!r}")
+    result = DigestOutput.model_validate_json(match.group(1))
     logger.info("Digest generated (%d chars, photo=%s)", len(result.text), bool(result.photo_url))
     return result
