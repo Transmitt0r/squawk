@@ -15,7 +15,7 @@
     {
       devShells = forAllSystems ({ pkgs }:
         let
-          python = pkgs.python312.withPackages (ps: with ps; [
+          python = pkgs.python313.withPackages (ps: with ps; [
             aiohttp
             asyncpg
             python-dotenv
@@ -29,6 +29,7 @@
               python
               pkgs.ruff
               pkgs.mypy
+              pkgs.postgresql
             ];
 
             shellHook = ''
