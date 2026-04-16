@@ -8,6 +8,7 @@ from telegram import Bot, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from .agent import DigestOutput, Runner, generate_digest
+from .charts import generate_traffic_chart
 from .config import Config
 from .db import get_active_users, register_user, unregister_user
 
@@ -85,8 +86,9 @@ def _debug(config: Config, runner: Runner):
         await update.message.reply_text("⏳ Generiere Digest… (kann eine Minute dauern)")
         try:
             digest = await generate_digest(runner, days=1)
+            chart = generate_traffic_chart(config.database_url, days=1)
             bot = update.get_bot()
-            await _send_digest(bot, update.effective_chat.id, digest)
+            await _send_digest(bot, update.effective_chat.id, digest, chart)
         except Exception as exc:
             logger.exception("Debug digest failed")
             await update.message.reply_text(f"❌ Fehler: {exc}")
@@ -94,8 +96,9 @@ def _debug(config: Config, runner: Runner):
     return handler
 
 
-async def _send_digest(bot: Bot, chat_id: int, digest: DigestOutput) -> None:
-    """Send digest text, then a follow-up photo if the agent found one."""
+async def _send_digest(bot: Bot, chat_id: int, digest: DigestOutput,
+                       chart_png: bytes | None = None) -> None:
+    """Send digest text, optional aircraft photo, then traffic chart."""
     await bot.send_message(chat_id=chat_id, text=digest.text, parse_mode="HTML")
     if digest.photo_url:
         try:
@@ -107,16 +110,23 @@ async def _send_digest(bot: Bot, chat_id: int, digest: DigestOutput) -> None:
             )
         except Exception:
             logger.warning("Failed to send follow-up photo to chat_id=%d", chat_id)
+    if chart_png:
+        try:
+            await bot.send_photo(chat_id=chat_id, photo=chart_png,
+                                 caption="📈 Flugverkehr der Woche")
+        except Exception:
+            logger.warning("Failed to send chart to chat_id=%d", chat_id)
 
 
 async def broadcast(config: Config, digest: DigestOutput) -> None:
     """Send digest to all registered users."""
     chat_ids = get_active_users(config.database_url)
     logger.info("Broadcasting digest to %d users", len(chat_ids))
+    chart = generate_traffic_chart(config.database_url, days=7)
     bot = Bot(token=config.bot_token)
     async with bot:
         for chat_id in chat_ids:
             try:
-                await _send_digest(bot, chat_id, digest)
+                await _send_digest(bot, chat_id, digest, chart)
             except Exception:
                 logger.exception("Failed to send to chat_id=%d", chat_id)
