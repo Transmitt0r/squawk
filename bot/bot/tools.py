@@ -8,8 +8,14 @@ import logging
 import psycopg2
 import psycopg2.extras
 import requests
+from cachetools import TTLCache
 
 logger = logging.getLogger(__name__)
+
+# Aircraft registrations and routes are stable — cache for 7 days
+_aircraft_cache: TTLCache = TTLCache(maxsize=1024, ttl=7 * 24 * 3600)
+_route_cache: TTLCache = TTLCache(maxsize=1024, ttl=7 * 24 * 3600)
+_photo_cache: TTLCache = TTLCache(maxsize=256, ttl=7 * 24 * 3600)
 
 _SQUAWK_MEANINGS = {
     "7700": "General emergency",
@@ -291,15 +297,18 @@ def make_tools(collector_database_url: str) -> list:
         Args:
             icao_hex: The 6-character ICAO 24-bit hex address (e.g. "3c6444").
         """
+        key = icao_hex.lower()
+        if key in _aircraft_cache:
+            return _aircraft_cache[key]
         try:
-            url = f"https://api.adsbdb.com/v0/aircraft/{icao_hex.lower()}"
+            url = f"https://api.adsbdb.com/v0/aircraft/{key}"
             resp = requests.get(url, timeout=10)
             if resp.status_code == 404:
                 return json.dumps({"error": "aircraft not found in database"})
             resp.raise_for_status()
             data = resp.json()
             aircraft = data.get("response", {}).get("aircraft", {})
-            return json.dumps({
+            result = json.dumps({
                 "registration": aircraft.get("registration"),
                 "type": aircraft.get("type"),
                 "icao_type": aircraft.get("icao_type"),
@@ -307,6 +316,8 @@ def make_tools(collector_database_url: str) -> list:
                 "country": aircraft.get("registered_owner_country_name"),
                 "flag": aircraft.get("registered_owner_country_iso_name"),
             })
+            _aircraft_cache[key] = result
+            return result
         except Exception as exc:
             logger.exception("lookup_aircraft failed for %s", icao_hex)
             return json.dumps({"error": str(exc)})
@@ -321,8 +332,11 @@ def make_tools(collector_database_url: str) -> list:
         Args:
             callsign: The flight callsign (e.g. "DLH123", "EZY4241").
         """
+        key = callsign.upper().strip()
+        if key in _route_cache:
+            return _route_cache[key]
         try:
-            url = f"https://api.adsbdb.com/v0/callsign/{callsign.upper().strip()}"
+            url = f"https://api.adsbdb.com/v0/callsign/{key}"
             resp = requests.get(url, timeout=10)
             if resp.status_code == 404:
                 return json.dumps({"error": "route not found in database"})
@@ -341,11 +355,13 @@ def make_tools(collector_database_url: str) -> list:
                     "country": ap.get("country_name"),
                 }
 
-            return json.dumps({
+            result = json.dumps({
                 "callsign": route.get("callsign"),
                 "origin": _airport(route.get("origin", {})),
                 "destination": _airport(route.get("destination", {})),
             })
+            _route_cache[key] = result
+            return result
         except Exception as exc:
             logger.exception("lookup_route failed for %s", callsign)
             return json.dumps({"error": str(exc)})
@@ -359,8 +375,11 @@ def make_tools(collector_database_url: str) -> list:
         Args:
             icao_hex: The 6-character ICAO 24-bit hex address (e.g. "3c6444").
         """
+        key = icao_hex.lower()
+        if key in _photo_cache:
+            return _photo_cache[key]
         try:
-            url = f"https://api.planespotters.net/pub/photos/hex/{icao_hex.lower()}"
+            url = f"https://api.planespotters.net/pub/photos/hex/{key}"
             resp = requests.get(url, timeout=10, headers={"User-Agent": "squawk-bot/1.0"})
             if resp.status_code == 404:
                 return json.dumps({"error": "no photo found"})
@@ -370,12 +389,14 @@ def make_tools(collector_database_url: str) -> list:
             if not photos:
                 return json.dumps({"error": "no photo found"})
             photo = photos[0]
-            return json.dumps({
+            result = json.dumps({
                 "photo_url": photo.get("thumbnail_large", {}).get("src"),
                 "link": photo.get("link"),
                 "photographer": photo.get("photographer"),
                 "registration": photo.get("aircraft", {}).get("reg"),
             })
+            _photo_cache[key] = result
+            return result
         except Exception as exc:
             logger.exception("lookup_photo failed for %s", icao_hex)
             return json.dumps({"error": str(exc)})
