@@ -84,7 +84,7 @@ def _debug(config: Config, runner: Runner):
 
         await update.message.reply_text("⏳ Generiere Digest… (kann eine Minute dauern)")
         try:
-            digest = await generate_digest(runner, days=7)
+            digest = await generate_digest(runner, days=1)
             bot = update.get_bot()
             await _send_digest(bot, update.effective_chat.id, digest)
         except Exception as exc:
