@@ -228,12 +228,12 @@ class SessionTracker:
         await conn.executemany(
             """
             INSERT INTO aircraft (hex, first_seen, last_seen, callsigns)
-            VALUES ($1, $2, $2, CASE WHEN $3 IS NOT NULL THEN ARRAY[$3] ELSE '{}' END)
+            VALUES ($1, $2, $2, CASE WHEN $3::text IS NOT NULL THEN ARRAY[$3::text] ELSE '{}' END)
             ON CONFLICT (hex) DO UPDATE
             SET last_seen = EXCLUDED.last_seen,
                 callsigns = CASE
-                    WHEN $3 IS NOT NULL AND NOT aircraft.callsigns @> ARRAY[$3]
-                    THEN array_append(aircraft.callsigns, $3)
+                    WHEN $3::text IS NOT NULL AND NOT aircraft.callsigns @> ARRAY[$3::text]
+                    THEN array_append(aircraft.callsigns, $3::text)
                     ELSE aircraft.callsigns
                 END
             """,
