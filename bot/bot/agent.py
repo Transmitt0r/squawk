@@ -77,13 +77,15 @@ Guidelines:
   one-line caption in photo_caption (e.g. "📸 N373GG — Bombardier Global 5000 der Artoc Group")
 
 Workflow:
-1. Call get_sightings, get_records, get_new_aircraft, and get_squawk_alerts in parallel
-2. Identify the most interesting 3-5 aircraft/sightings to highlight
-3. Call lookup_route for each highlighted flight to get origin/destination
-4. Call lookup_aircraft for interesting ones to get operator/type info
-5. Call lookup_photo for the single most interesting aircraft
-6. Write the digest prose, then append the Fakten section
-7. Finally, output the result as a JSON code block and nothing else after it:
+1. Call get_stats, get_squawk_alerts, and get_new_aircraft in parallel
+2. Call get_top_sightings(sort_by="closest") to find overhead flights worth highlighting
+3. Optionally call get_top_sightings again with sort_by="highest" or "longest" for other angles
+4. Call get_record for 1-2 record types that seem most interesting
+5. Call lookup_route for each highlighted flight to get origin/destination
+6. Call lookup_aircraft for interesting hex codes (private jets, unknowns, exotic operators)
+7. Call lookup_photo for the single most interesting aircraft
+8. Write the digest prose, then append the Fakten section
+9. Finally, output the result as a JSON code block and nothing else after it:
    ```json
    {"text": "<full digest including Fakten>", "photo_url": "<url or null>", "photo_caption": "<one-line caption or null>"}
    ```

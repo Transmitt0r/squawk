@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Literal
 
 import psycopg2
 import psycopg2.extras
@@ -23,19 +24,24 @@ _SQUAWK_MEANINGS = {
     "7500": "Hijack declared",
 }
 
+_SORT_COLUMNS = {
+    "closest": ("s.min_distance", "ASC NULLS LAST"),
+    "highest": ("s.max_altitude", "DESC NULLS LAST"),
+    "longest": ("duration_minutes", "DESC NULLS LAST"),
+    "recent": ("s.started_at", "DESC"),
+}
+
 
 def make_tools(collector_database_url: str) -> list:
     """Create agent tools closed over the collector DB URL."""
 
-    def get_sightings(days: int = 7) -> str:
-        """Get a summary of aircraft sightings observed over the past N days.
+    def get_stats(days: int = 7) -> str:
+        """Get aggregate statistics for the digest Fakten section.
 
-        Returns a JSON string with:
-        - total_sightings: number of sighting sessions
-        - unique_aircraft: number of distinct ICAO hex codes
-        - sightings: list of individual sightings with callsign, hex, start time,
-          duration, min/max altitude (in feet), min/max distance from receiver (in nautical miles)
-        - top_operators: most frequent callsign prefixes (airline codes)
+        Returns counts only — no row lists — so it is very compact:
+        - total_sightings, unique_aircraft, new_aircraft_count
+        - top_operators: list of {prefix, count} sorted by frequency
+        - squawk_alert_count: number of emergency squawk events
 
         Args:
             days: How many days back to look (default 7).
@@ -45,155 +51,215 @@ def make_tools(collector_database_url: str) -> list:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                     cur.execute("""
                         SELECT
+                            COUNT(*)                          AS total_sightings,
+                            COUNT(DISTINCT hex)               AS unique_aircraft,
+                            COUNT(DISTINCT callsign)
+                                FILTER (WHERE callsign IS NOT NULL) AS unique_callsigns
+                        FROM sightings
+                        WHERE started_at > now() - (%(days)s || ' days')::interval
+                    """, {"days": days})
+                    counts = dict(cur.fetchone())
+
+                    cur.execute("""
+                        SELECT LEFT(callsign, 3) AS prefix, COUNT(*) AS cnt
+                        FROM sightings
+                        WHERE started_at > now() - (%(days)s || ' days')::interval
+                          AND callsign IS NOT NULL
+                          AND LENGTH(callsign) >= 3
+                          AND LEFT(callsign, 3) ~ '^[A-Z]{3}$'
+                        GROUP BY prefix
+                        ORDER BY cnt DESC
+                        LIMIT 5
+                    """, {"days": days})
+                    top_operators = [{"prefix": r["prefix"], "count": int(r["cnt"])}
+                                     for r in cur.fetchall()]
+
+                    cur.execute("""
+                        SELECT COUNT(*) AS cnt
+                        FROM aircraft
+                        WHERE first_seen > now() - (%(days)s || ' days')::interval
+                    """, {"days": days})
+                    new_aircraft_count = int(cur.fetchone()["cnt"])
+
+                    cur.execute("""
+                        SELECT COUNT(*) AS cnt
+                        FROM position_updates
+                        WHERE time > now() - (%(days)s || ' days')::interval
+                          AND squawk = ANY(%(codes)s)
+                    """, {"days": days, "codes": list(_SQUAWK_MEANINGS.keys())})
+                    squawk_alert_count = int(cur.fetchone()["cnt"])
+
+            return json.dumps({
+                **{k: int(v) for k, v in counts.items()},
+                "new_aircraft_count": new_aircraft_count,
+                "top_operators": top_operators,
+                "squawk_alert_count": squawk_alert_count,
+            })
+        except Exception as exc:
+            logger.exception("get_stats failed")
+            return json.dumps({"error": str(exc)})
+
+    def get_top_sightings(
+        days: int = 7,
+        sort_by: Literal["closest", "highest", "longest", "recent"] = "closest",
+        limit: int = 10,
+    ) -> str:
+        """Get a ranked list of sightings from the past N days.
+
+        Use this to find interesting flights to highlight. Call it multiple times
+        with different sort_by values if you need different angles.
+
+        sort_by options:
+        - "closest":  nearest to the receiver (most likely overhead)
+        - "highest":  highest altitude seen
+        - "longest":  longest continuous observation session
+        - "recent":   most recently seen
+
+        Returns hex, callsign, started_at, duration_minutes, max_altitude (feet),
+        min_distance (nautical miles) for each sighting.
+
+        Args:
+            days: How many days back to look (default 7).
+            sort_by: Ranking criterion (default "closest").
+            limit: Max rows to return, 1–20 (default 10).
+        """
+        if sort_by not in _SORT_COLUMNS:
+            return json.dumps({"error": f"sort_by must be one of {list(_SORT_COLUMNS)}"})
+        limit = max(1, min(limit, 20))
+        col, direction = _SORT_COLUMNS[sort_by]
+
+        try:
+            with psycopg2.connect(collector_database_url) as conn:
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(f"""
+                        SELECT
                             s.hex,
                             s.callsign,
                             s.started_at,
-                            s.ended_at,
                             EXTRACT(EPOCH FROM (COALESCE(s.ended_at, now()) - s.started_at)) / 60
                                 AS duration_minutes,
                             s.max_altitude,
                             s.min_distance
                         FROM sightings s
                         WHERE s.started_at > now() - (%(days)s || ' days')::interval
-                        ORDER BY s.min_distance ASC NULLS LAST
-                        LIMIT 25
-                    """, {"days": days})
+                        ORDER BY {col} {direction}
+                        LIMIT %(limit)s
+                    """, {"days": days, "limit": limit})
                     rows = cur.fetchall()
 
-            sightings = [dict(r) for r in rows]
-
-            # Compute top operator prefixes (first 3 chars of callsign = airline ICAO code)
-            prefixes: dict[str, int] = {}
-            for s in sightings:
-                cs = s.get("callsign") or ""
-                if len(cs) >= 3 and cs[:3].isalpha():
-                    prefix = cs[:3].upper()
-                    prefixes[prefix] = prefixes.get(prefix, 0) + 1
-            top_operators = sorted(prefixes.items(), key=lambda x: x[1], reverse=True)[:10]
-
-            # Serialize datetimes
-            for s in sightings:
-                for k in ("started_at", "ended_at"):
-                    if s[k] is not None:
-                        s[k] = s[k].isoformat()
+            result = []
+            for r in rows:
+                d = dict(r)
+                d["started_at"] = d["started_at"].isoformat() if d["started_at"] else None
                 for k in ("duration_minutes", "max_altitude", "min_distance"):
-                    if s[k] is not None:
-                        s[k] = float(s[k])
+                    if d[k] is not None:
+                        d[k] = float(d[k])
+                result.append(d)
 
-            result = {
-                "total_sightings": len(sightings),
-                "unique_aircraft": len({s["hex"] for s in sightings}),
-                "top_operators": [{"prefix": p, "count": c} for p, c in top_operators],
-                "sightings": sightings,
-            }
-            return json.dumps(result, default=str)
-
+            return json.dumps({"sightings": result})
         except Exception as exc:
-            logger.exception("get_sightings failed")
+            logger.exception("get_top_sightings failed")
             return json.dumps({"error": str(exc)})
 
-    def get_records(days: int = 7) -> str:
-        """Get record-breaking sightings from the past N days.
+    def get_record(
+        days: int = 7,
+        record_type: Literal["furthest", "highest", "fastest", "longest", "return_visitors"] = "furthest",
+    ) -> str:
+        """Get a single record extreme from the past N days.
 
-        Returns the week's extremes from what our receiver picked up:
-        - furthest_sighting: aircraft seen at greatest distance (nautical miles)
-        - highest_altitude: aircraft seen at greatest altitude (feet)
-        - fastest_ground_speed: aircraft with highest ground speed (knots)
-        - longest_session: aircraft observed continuously for longest time (minutes)
+        Call once per record type you want to highlight. Each call returns
+        a small, focused result.
+
+        record_type options:
+        - "furthest":        aircraft seen at greatest distance (nautical miles)
+        - "highest":         aircraft seen at greatest altitude (feet)
+        - "fastest":         aircraft with highest ground speed (knots)
+        - "longest":         aircraft observed for longest continuous session (minutes)
+        - "return_visitors": aircraft seen multiple times (top 5, sorted by visit count)
 
         Args:
             days: How many days back to look (default 7).
+            record_type: Which record to fetch (default "furthest").
         """
         try:
             with psycopg2.connect(collector_database_url) as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                    cur.execute("""
-                        SELECT hex, callsign, max_distance AS value
-                        FROM sightings
-                        WHERE started_at > now() - (%(days)s || ' days')::interval
-                          AND max_distance IS NOT NULL
-                        ORDER BY max_distance DESC
-                        LIMIT 1
-                    """, {"days": days})
-                    furthest = dict(cur.fetchone() or {})
+                    if record_type == "furthest":
+                        cur.execute("""
+                            SELECT hex, callsign, max_distance AS value
+                            FROM sightings
+                            WHERE started_at > now() - (%(days)s || ' days')::interval
+                              AND max_distance IS NOT NULL
+                            ORDER BY max_distance DESC LIMIT 1
+                        """, {"days": days})
+                        row = cur.fetchone()
+                        return json.dumps({"record_type": "furthest_nm", **(dict(row) if row else {})}, default=str)
 
-                    cur.execute("""
-                        SELECT hex, callsign, max_altitude AS value
-                        FROM sightings
-                        WHERE started_at > now() - (%(days)s || ' days')::interval
-                          AND max_altitude IS NOT NULL
-                        ORDER BY max_altitude DESC
-                        LIMIT 1
-                    """, {"days": days})
-                    highest = dict(cur.fetchone() or {})
+                    elif record_type == "highest":
+                        cur.execute("""
+                            SELECT hex, callsign, max_altitude AS value
+                            FROM sightings
+                            WHERE started_at > now() - (%(days)s || ' days')::interval
+                              AND max_altitude IS NOT NULL
+                            ORDER BY max_altitude DESC LIMIT 1
+                        """, {"days": days})
+                        row = cur.fetchone()
+                        return json.dumps({"record_type": "highest_ft", **(dict(row) if row else {})}, default=str)
 
-                    cur.execute("""
-                        WITH top AS (
-                            SELECT hex, MAX(gs) AS value
-                            FROM position_updates
-                            WHERE time > now() - (%(days)s || ' days')::interval
-                              AND gs IS NOT NULL
-                            GROUP BY hex
-                            ORDER BY value DESC
-                            LIMIT 1
-                        )
-                        SELECT t.hex, t.value, s.callsign
-                        FROM top t
-                        LEFT JOIN sightings s ON s.hex = t.hex
-                            AND s.started_at > now() - (%(days)s || ' days')::interval
-                        ORDER BY s.started_at DESC
-                        LIMIT 1
-                    """, {"days": days})
-                    fastest = dict(cur.fetchone() or {})
+                    elif record_type == "fastest":
+                        cur.execute("""
+                            WITH top AS (
+                                SELECT hex, MAX(gs) AS value
+                                FROM position_updates
+                                WHERE time > now() - (%(days)s || ' days')::interval
+                                  AND gs IS NOT NULL
+                                GROUP BY hex ORDER BY value DESC LIMIT 1
+                            )
+                            SELECT t.hex, t.value, s.callsign
+                            FROM top t
+                            LEFT JOIN sightings s ON s.hex = t.hex
+                                AND s.started_at > now() - (%(days)s || ' days')::interval
+                            ORDER BY s.started_at DESC LIMIT 1
+                        """, {"days": days})
+                        row = cur.fetchone()
+                        return json.dumps({"record_type": "fastest_kt", **(dict(row) if row else {})}, default=str)
 
-                    cur.execute("""
-                        SELECT hex, callsign,
-                               EXTRACT(EPOCH FROM (COALESCE(ended_at, now()) - started_at)) / 60
-                                   AS value
-                        FROM sightings
-                        WHERE started_at > now() - (%(days)s || ' days')::interval
-                        ORDER BY value DESC
-                        LIMIT 1
-                    """, {"days": days})
-                    longest = dict(cur.fetchone() or {})
+                    elif record_type == "longest":
+                        cur.execute("""
+                            SELECT hex, callsign,
+                                   EXTRACT(EPOCH FROM (COALESCE(ended_at, now()) - started_at)) / 60 AS value
+                            FROM sightings
+                            WHERE started_at > now() - (%(days)s || ' days')::interval
+                            ORDER BY value DESC LIMIT 1
+                        """, {"days": days})
+                        row = cur.fetchone()
+                        return json.dumps({"record_type": "longest_min", **(dict(row) if row else {})}, default=str)
 
-                    cur.execute("""
-                        SELECT hex,
-                               COUNT(*) AS visit_count,
-                               MODE() WITHIN GROUP (ORDER BY callsign) AS callsign
-                        FROM sightings
-                        WHERE started_at > now() - (%(days)s || ' days')::interval
-                        GROUP BY hex
-                        HAVING COUNT(*) > 1
-                        ORDER BY visit_count DESC
-                        LIMIT 5
-                    """, {"days": days})
-                    return_visitors = [dict(r) for r in cur.fetchall()]
+                    elif record_type == "return_visitors":
+                        cur.execute("""
+                            SELECT hex, COUNT(*) AS visit_count,
+                                   MODE() WITHIN GROUP (ORDER BY callsign) AS callsign
+                            FROM sightings
+                            WHERE started_at > now() - (%(days)s || ' days')::interval
+                            GROUP BY hex HAVING COUNT(*) > 1
+                            ORDER BY visit_count DESC LIMIT 5
+                        """, {"days": days})
+                        rows = cur.fetchall()
+                        return json.dumps({
+                            "record_type": "return_visitors",
+                            "visitors": [dict(r) for r in rows],
+                        }, default=str)
 
-            for d in (furthest, highest, fastest, longest):
-                if d.get("value") is not None:
-                    d["value"] = float(d["value"])
-            for d in return_visitors:
-                d["visit_count"] = int(d["visit_count"])
-
-            return json.dumps({
-                "furthest_sighting_nm": furthest,
-                "highest_altitude_ft": highest,
-                "fastest_ground_speed_kt": fastest,
-                "longest_session_min": longest,
-                "return_visitors": return_visitors,
-            }, default=str)
-
+                    return json.dumps({"error": f"unknown record_type: {record_type}"})
         except Exception as exc:
-            logger.exception("get_records failed")
+            logger.exception("get_record failed")
             return json.dumps({"error": str(exc)})
 
     def get_new_aircraft(days: int = 7) -> str:
         """Get aircraft seen by our receiver for the very first time during the past N days.
 
-        These are brand-new visitors — never picked up before in the entire history
-        of the receiver. Returns hex, first_seen timestamp, callsigns observed,
-        and altitude/distance from the sighting.
+        Returns the 10 most recent first-time visitors with hex, first_seen,
+        callsigns, max_altitude (feet), and min_distance (nautical miles).
 
         Args:
             days: How many days back to look (default 7).
@@ -234,11 +300,7 @@ def make_tools(collector_database_url: str) -> list:
                     d["max_distance"] = float(d["max_distance"])
                 result.append(d)
 
-            return json.dumps({
-                "new_aircraft_count": len(result),
-                "new_aircraft": result,
-            }, default=str)
-
+            return json.dumps({"new_aircraft_count": len(result), "new_aircraft": result}, default=str)
         except Exception as exc:
             logger.exception("get_new_aircraft failed")
             return json.dumps({"error": str(exc)})
@@ -246,12 +308,7 @@ def make_tools(collector_database_url: str) -> list:
     def get_squawk_alerts(days: int = 7) -> str:
         """Check if any aircraft broadcast emergency squawk codes while over our area.
 
-        Emergency squawk codes:
-        - 7700: General emergency
-        - 7600: Radio communication failure
-        - 7500: Hijack declared
-
-        Returns any incidents with timestamp, aircraft hex, squawk code, and meaning.
+        Emergency squawk codes: 7700 (general emergency), 7600 (radio failure), 7500 (hijack).
         If alerts exist, treat them as the lead story of the digest.
 
         Args:
@@ -261,8 +318,7 @@ def make_tools(collector_database_url: str) -> list:
             with psycopg2.connect(collector_database_url) as conn:
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                     cur.execute("""
-                        SELECT DISTINCT ON (hex, squawk)
-                            time, hex, squawk
+                        SELECT DISTINCT ON (hex, squawk) time, hex, squawk
                         FROM position_updates
                         WHERE time > now() - (%(days)s || ' days')::interval
                           AND squawk = ANY(%(codes)s)
@@ -278,11 +334,7 @@ def make_tools(collector_database_url: str) -> list:
                     d["time"] = d["time"].isoformat()
                 alerts.append(d)
 
-            return json.dumps({
-                "alert_count": len(alerts),
-                "alerts": alerts,
-            }, default=str)
-
+            return json.dumps({"alert_count": len(alerts), "alerts": alerts}, default=str)
         except Exception as exc:
             logger.exception("get_squawk_alerts failed")
             return json.dumps({"error": str(exc)})
@@ -290,8 +342,8 @@ def make_tools(collector_database_url: str) -> list:
     def lookup_aircraft(icao_hex: str) -> str:
         """Look up registration, aircraft type, and operator for an ICAO hex code.
 
-        Uses the public adsbdb.com API. Returns a JSON string with fields:
-        registration, type, icao_type, operator, country, or an error message.
+        Uses the public adsbdb.com API. Returns registration, type, icao_type,
+        operator, country, or an error message.
 
         Args:
             icao_hex: The 6-character ICAO 24-bit hex address (e.g. "3c6444").
@@ -324,9 +376,8 @@ def make_tools(collector_database_url: str) -> list:
     def lookup_route(callsign: str) -> str:
         """Look up the origin and destination airports for a flight callsign.
 
-        Uses the public adsbdb.com API. Returns a JSON string with origin and
-        destination airport details (IATA/ICAO codes, city, country), or an
-        error message if the route is not known.
+        Uses the public adsbdb.com API. Returns origin and destination airport
+        details (IATA/ICAO codes, city, country), or an error if unknown.
 
         Args:
             callsign: The flight callsign (e.g. "DLH123", "EZY4241").
@@ -401,8 +452,9 @@ def make_tools(collector_database_url: str) -> list:
             return json.dumps({"error": str(exc)})
 
     return [
-        get_sightings,
-        get_records,
+        get_stats,
+        get_top_sightings,
+        get_record,
         get_new_aircraft,
         get_squawk_alerts,
         lookup_aircraft,
