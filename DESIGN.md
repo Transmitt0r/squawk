@@ -1042,12 +1042,12 @@ for all application queries — no ORM or query builder.
 
 ### Phase 3 — EventBus Library
 
-- [ ] **3.1** Define `Actor` protocol in `eventbus/protocols.py`
-- [ ] **3.2** Implement `EventLog` in `eventbus/log.py`: `write()`,
+- [x] **3.1** Define `Actor` protocol in `eventbus/protocols.py`
+- [x] **3.2** Implement `EventLog` in `eventbus/log.py`: `write()`,
       `mark_processed(id, emitted_at)`, `fetch_unprocessed(since)`
-- [ ] **3.3** Implement `EventBus` in `eventbus/bus.py`: `subscribe()`, `emit()`
+- [x] **3.3** Implement `EventBus` in `eventbus/bus.py`: `subscribe()`, `emit()`
       (write to log + deliver to inbox), `replay_unprocessed()`
-- [ ] **3.4** Write `eventbus` tests in `libs/eventbus/test_eventbus.py`: subscribe/emit,
+- [x] **3.4** Write `eventbus` tests in `libs/eventbus/test_eventbus.py`: subscribe/emit,
       inbox delivery, replay on startup, handler error does not crash bus,
       mark_processed uses composite key
 

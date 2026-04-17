@@ -36,6 +36,8 @@ Each component has its own `pyproject.toml` and `uv.lock`. Run tools from within
 
 The Claude Code PostToolUse hook (`.claude/hooks/ruff-check.sh`) also runs ruff check immediately after each file edit, for faster feedback during development.
 
+**IMPORTANT:** `ruff` and other hook tools are only available inside the nix devshell. Always run `git commit` via `nix develop --command git commit ...` — running it outside the devshell will fail the hooks because the executables are not on PATH.
+
 ## Testing
 
 Tests are colocated with the code they test — no top-level `tests/` directory.
