@@ -59,7 +59,7 @@ Dockerfile
 docker-compose.yml
 
 libs/
-  collector/                 ← pure package: polls tar1090, returns AircraftState list
+  tar1090/                   ← pure package: polls tar1090 HTTP API, returns AircraftState list
     __init__.py              ← public API: async def poll(url, timeout) -> list[AircraftState]
     models.py                ← AircraftState dataclass
     _http.py                 ← aiohttp internals (private)
@@ -104,7 +104,7 @@ squawk/
 
 tests/
   libs/
-    test_collector.py
+    test_tar1090.py
     test_eventbus.py
   squawk/
     test_repositories.py
@@ -116,19 +116,19 @@ tests/
 
 ## Libraries
 
-`libs/collector` and `libs/eventbus` are Python packages within the single project.
+`libs/tar1090` and `libs/eventbus` are Python packages within the single project.
 They have no dependency on `squawk` domain types. This is enforced by convention:
 nothing inside `libs/` may import from `squawk/`. Checked in code review and by
 keeping their internal `import` statements visibly clean.
 
-### `libs/collector`
+### `libs/tar1090`
 
 No database dependency. No concept of sessions or state.
 
 **Public API:**
 
 ```python
-# collector/__init__.py
+# tar1090/__init__.py
 async def poll(url: str, timeout: float = 5.0) -> list[AircraftState]: ...
 
 @dataclass(frozen=True)
@@ -650,9 +650,9 @@ the next begins.
 ### Phase 1 — Project Restructure & Libraries
 
 - [ ] **1.1** Consolidate to single root `pyproject.toml`: merge all dependencies from `collector/pyproject.toml` and `bot/pyproject.toml`, remove uv workspace config, configure hatchling to include `libs/` and `squawk/` packages
-- [ ] **1.2** Create `libs/collector/`: move and strip `collector/` of all DB dependencies (`asyncpg`, `db.py`, `tracker.py`, `schema.sql`, `python-dotenv`)
-- [ ] **1.3** Reduce `collector` public API to `poll(url, timeout) -> list[AircraftState]` in `__init__.py`; move HTTP logic to `_http.py`
-- [ ] **1.4** Update `collector` tests to only test polling and parsing logic; move to `tests/libs/`
+- [ ] **1.2** Create `libs/tar1090/`: move and strip `collector/` of all DB dependencies (`asyncpg`, `db.py`, `tracker.py`, `schema.sql`, `python-dotenv`)
+- [ ] **1.3** Reduce `tar1090` public API to `poll(url, timeout) -> list[AircraftState]` in `__init__.py`; move HTTP logic to `_http.py`
+- [ ] **1.4** Update `tar1090` tests to only test polling and parsing logic; move to `tests/libs/`
 - [ ] **1.5** Create `libs/eventbus/` package
 - [ ] **1.6** Define `Handler` protocol in `eventbus/protocols.py`
 - [ ] **1.7** Implement `EventBus` in `eventbus/bus.py`: `subscribe()`, `emit()` (in-memory delivery only for now)
@@ -693,7 +693,7 @@ the next begins.
 
 ### Phase 6 — Actors
 
-- [ ] **6.1** Write `squawk/actors/polling.py`: `PollingActor` — polls via `collector.poll()`, calls `SightingRepository.record_poll()`, emits `HexFirstSeen` and `EnrichmentExpired` via `EventBus`
+- [ ] **6.1** Write `squawk/actors/polling.py`: `PollingActor` — polls via `tar1090.poll()`, calls `SightingRepository.record_poll()`, emits `HexFirstSeen` and `EnrichmentExpired` via `EventBus`
 - [ ] **6.2** Write `squawk/actors/enrichment.py`: `EnrichmentActor` — collects events into batch buffer, flushes on `batch_size` or `flush_interval`, makes single Gemini batch scoring call, stores via `EnrichmentRepository`
 - [ ] **6.3** Update Gemini scoring prompt to accept and return a JSON array (batch input/output)
 - [ ] **6.4** Write `squawk/actors/digest.py`: `DigestActor` — handles `DigestRequested`, checks cache, queries via `DigestQuery`, calls Gemini, caches via `DigestRepository`, broadcasts
@@ -730,7 +730,7 @@ should be rejected.
 3. **No APScheduler imports outside `squawk/scheduler.py`.**
 4. **No database writes outside the owning repository.** See table ownership
    table above.
-5. **`libs/collector` and `libs/eventbus` have zero knowledge of squawk domain
+5. **`libs/tar1090` and `libs/eventbus` have zero knowledge of squawk domain
    types.** Nothing inside `libs/` may import from `squawk/`. Enforced by
    convention and code review, not package isolation.
 6. **`__main__.py` contains wiring only.** No business logic.
