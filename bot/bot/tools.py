@@ -446,12 +446,97 @@ def make_tools(collector_database_url: str) -> list:
             logger.exception("lookup_photo failed for %s", icao_hex)
             return json.dumps({"error": str(exc)})
 
+    def compare_periods(
+        unit: Literal["day", "week", "month"] = "week",
+        n: int = 4,
+    ) -> str:
+        """Compare flight traffic across the last N days, weeks, or months.
+
+        Use this to write trend sentences like "diese Woche 20% mehr als letzte Woche"
+        or "April war der bisher ruhigste Monat".
+
+        Returns a CSV with one row per period:
+          period, total_sightings, unique_aircraft, new_aircraft, top_operator
+
+        unit options:
+          "day"   — last N calendar days (max 14)
+          "week"  — last N ISO weeks (max 12)
+          "month" — last N calendar months (max 12)
+
+        Args:
+            unit: Time unit to group by (default "week").
+            n: Number of periods to return (default 4).
+        """
+        n = max(1, min(n, 14 if unit == "day" else 12))
+        try:
+            with psycopg2.connect(collector_database_url) as conn:
+                with conn.cursor() as cur:
+                    if unit == "day":
+                        trunc = "day"
+                        label_sql = "TO_CHAR(p, 'Dy DD.MM.')"
+                    elif unit == "week":
+                        trunc = "week"
+                        label_sql = "'KW' || TO_CHAR(p, 'IW')"
+                    else:
+                        trunc = "month"
+                        label_sql = "TO_CHAR(p, 'Mon YYYY')"
+
+                    cur.execute(f"""
+                        WITH periods AS (
+                            SELECT generate_series(
+                                DATE_TRUNC('{trunc}', now() AT TIME ZONE 'Europe/Berlin')
+                                    - (%(n)s - 1) * INTERVAL '1 {trunc}',
+                                DATE_TRUNC('{trunc}', now() AT TIME ZONE 'Europe/Berlin'),
+                                INTERVAL '1 {trunc}'
+                            )::date AS p
+                        ),
+                        sightings_agg AS (
+                            SELECT
+                                DATE_TRUNC('{trunc}',
+                                    started_at AT TIME ZONE 'Europe/Berlin')::date AS p,
+                                COUNT(*)                    AS total_sightings,
+                                COUNT(DISTINCT hex)         AS unique_aircraft,
+                                LEFT(MODE() WITHIN GROUP (ORDER BY callsign), 3) AS top_op
+                            FROM sightings
+                            WHERE callsign IS NOT NULL
+                            GROUP BY 1
+                        ),
+                        new_agg AS (
+                            SELECT
+                                DATE_TRUNC('{trunc}',
+                                    first_seen AT TIME ZONE 'Europe/Berlin')::date AS p,
+                                COUNT(*) AS new_aircraft
+                            FROM aircraft
+                            GROUP BY 1
+                        )
+                        SELECT
+                            {label_sql}             AS period,
+                            COALESCE(s.total_sightings, 0) AS total_sightings,
+                            COALESCE(s.unique_aircraft, 0) AS unique_aircraft,
+                            COALESCE(na.new_aircraft, 0)   AS new_aircraft,
+                            COALESCE(s.top_op, '')         AS top_operator
+                        FROM periods pr
+                        LEFT JOIN sightings_agg s  ON s.p  = pr.p
+                        LEFT JOIN new_agg       na ON na.p = pr.p
+                        ORDER BY pr.p
+                    """, {"n": n})
+                    rows = cur.fetchall()
+
+            lines = ["period,total_sightings,unique_aircraft,new_aircraft,top_operator"]
+            for row in rows:
+                lines.append(",".join(str(v) for v in row))
+            return "\n".join(lines)
+        except Exception as exc:
+            logger.exception("compare_periods failed")
+            return json.dumps({"error": str(exc)})
+
     return [
         get_stats,
         get_top_sightings,
         get_record,
         get_new_aircraft,
         get_squawk_alerts,
+        compare_periods,
         lookup_aircraft,
         lookup_route,
         lookup_photo,

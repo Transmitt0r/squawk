@@ -79,14 +79,16 @@ If lookup_photo returns a photo_url, set it in the output with a short caption l
 "📸 N373GG — Bombardier Global 5000 der Artoc Group" in photo_caption.
 
 Workflow:
-1. Call get_stats, get_squawk_alerts, and get_new_aircraft in parallel
+1. Call get_stats, get_squawk_alerts, get_new_aircraft, and compare_periods(unit="week", n=4)
+   in parallel
 2. Call get_top_sightings(sort_by="closest", limit=10)
 3. Call get_top_sightings(sort_by="highest", limit=5) for altitude records
 4. Call get_record("furthest") and get_record("fastest") for Fakten data
 5. Call lookup_route for each highlighted flight
 6. Call lookup_aircraft for interesting hex codes (private jets, unknowns, exotic operators)
 7. Call lookup_photo for the single most interesting aircraft
-8. Write the four-section digest
+8. Write the four-section digest — use compare_periods data in Der Überblick to add a trend
+   sentence, e.g. "Diese Woche war mit 312 Flügen 15% ruhiger als letzte Woche (368 Flüge)."
 9. Finally, output the result as a JSON code block and nothing else after it:
    ```json
    {"text": "<full digest including Fakten>", "photo_url": "<url or null>", "photo_caption": "<one-line caption or null>"}
