@@ -48,69 +48,82 @@ any actor. `DigestRequested` lands on the bus the same way `HexFirstSeen` does.
 
 ## Repository Layout
 
+One `pyproject.toml` at the repo root covers the entire project. `libs/` packages
+are part of the same project — the boundary is enforced by import discipline, not
+package isolation.
+
 ```
+pyproject.toml               ← single, all dependencies live here
+uv.lock
+Dockerfile
+docker-compose.yml
+
 libs/
-  collector/                 ← pure library: polls tar1090, returns AircraftState list
-    collector/
-      __init__.py            ← public API: async def poll(url, timeout) -> list[AircraftState]
-      models.py              ← AircraftState dataclass
-      _http.py               ← aiohttp internals (private)
-    tests/
-    pyproject.toml
+  collector/                 ← pure package: polls tar1090, returns AircraftState list
+    __init__.py              ← public API: async def poll(url, timeout) -> list[AircraftState]
+    models.py                ← AircraftState dataclass
+    _http.py                 ← aiohttp internals (private)
 
-  eventbus/                  ← pure library: typed async event bus
-    eventbus/
-      __init__.py            ← public API: EventBus, EventLog
-      bus.py                 ← dispatcher + asyncio delivery
-      log.py                 ← TimescaleDB-backed event log
-      protocols.py           ← Handler protocol
-    tests/
-    pyproject.toml
+  eventbus/                  ← pure package: typed async event bus, no domain knowledge
+    __init__.py              ← public API: EventBus, Handler protocol
+    bus.py                   ← dispatcher + asyncio delivery
+    log.py                   ← TimescaleDB-backed event log
+    protocols.py             ← Handler protocol
 
-squawk/                      ← the one service
+squawk/
+  __init__.py
+  __main__.py                ← wiring only: construct everything, start TaskGroup
+  config.py                  ← all env vars in one dataclass
+  db.py                      ← asyncpg pool creation
+  events.py                  ← domain event dataclasses
+  scheduler.py               ← Scheduler protocol + APSchedulerBackend
+
+  clients/                   ← typed HTTP clients, each behind a Protocol
+    protocols.py             ← AircraftLookupClient, PhotoClient, RouteClient
+    adsbdb.py                ← AdsbbClient (implements AircraftLookupClient)
+    planespotters.py         ← PlanespottersClient (implements PhotoClient)
+    routes.py                ← RoutesClient (implements RouteClient)
+
+  repositories/              ← write repositories, one per table-owner
+    sightings.py             ← SightingRepository (aircraft, sightings, position_updates)
+    enrichment.py            ← EnrichmentRepository (enriched_aircraft, callsign_routes)
+    digest.py                ← DigestRepository (digests)
+    users.py                 ← UserRepository (users)
+
+  queries/                   ← read-only, cross-table, used only for building digest
+    digest.py                ← DigestQuery (joins sightings + enriched_aircraft)
+
+  actors/
+    polling.py               ← PollingActor
+    enrichment.py            ← EnrichmentActor
+    digest.py                ← DigestActor
+
+  bot/
+    handlers.py              ← /start /stop /debug Telegram command handlers
+    broadcaster.py           ← sends digest to all active users
+
+tests/
+  libs/
+    test_collector.py
+    test_eventbus.py
   squawk/
-    __main__.py              ← wiring only: construct everything, start TaskGroup
-    config.py                ← all env vars in one dataclass
-    db.py                    ← asyncpg pool creation
-
-    scheduler.py             ← Scheduler protocol + APSchedulerBackend
-
-    clients/                 ← typed HTTP clients, each behind a Protocol
-      protocols.py           ← AircraftLookupClient, PhotoClient, RouteClient
-      adsbdb.py              ← AdsbbClient (implements AircraftLookupClient)
-      planespotters.py       ← PlanespottersClient (implements PhotoClient)
-      routes.py              ← RoutesClient (implements RouteClient)
-
-    repositories/            ← write repositories, one per table-owner
-      sightings.py           ← SightingRepository  (aircraft, sightings, position_updates)
-      enrichment.py          ← EnrichmentRepository (enriched_aircraft, callsign_routes)
-      digest.py              ← DigestRepository (digests)
-      users.py               ← UserRepository (users)
-
-    queries/                 ← read-only, cross-table, used only for building digest
-      digest.py              ← DigestQuery (joins sightings + enriched_aircraft)
-
-    actors/
-      polling.py             ← PollingActor
-      enrichment.py          ← EnrichmentActor
-      digest.py              ← DigestActor
-
-    bot/
-      handlers.py            ← /start /stop /debug Telegram command handlers
-      broadcaster.py         ← sends digest to all active users
-
-  tests/
-  pyproject.toml
-  Dockerfile
+    test_repositories.py
+    test_actors.py
+    test_clients.py
 ```
 
 ---
 
 ## Libraries
 
+`libs/collector` and `libs/eventbus` are Python packages within the single project.
+They have no dependency on `squawk` domain types. This is enforced by convention:
+nothing inside `libs/` may import from `squawk/`. Checked in code review and by
+keeping their internal `import` statements visibly clean.
+
 ### `libs/collector`
 
-Pure Python package. No database dependency. No concept of sessions or state.
+No database dependency. No concept of sessions or state.
 
 **Public API:**
 
@@ -634,28 +647,26 @@ shared and must be migrated in place.
 Tasks are ordered by dependency. Each task should be completed and tested before
 the next begins.
 
-### Phase 1 — Libraries
+### Phase 1 — Project Restructure & Libraries
 
-- [ ] **1.1** Create `libs/` directory, move `collector/` into `libs/collector/`
-- [ ] **1.2** Strip `collector` of all DB dependencies (`asyncpg`, `db.py`, `tracker.py`, `schema.sql`)
+- [ ] **1.1** Consolidate to single root `pyproject.toml`: merge all dependencies from `collector/pyproject.toml` and `bot/pyproject.toml`, remove uv workspace config, configure hatchling to include `libs/` and `squawk/` packages
+- [ ] **1.2** Create `libs/collector/`: move and strip `collector/` of all DB dependencies (`asyncpg`, `db.py`, `tracker.py`, `schema.sql`, `python-dotenv`)
 - [ ] **1.3** Reduce `collector` public API to `poll(url, timeout) -> list[AircraftState]` in `__init__.py`; move HTTP logic to `_http.py`
-- [ ] **1.4** Update `collector` `pyproject.toml`: remove `asyncpg`, `python-dotenv` dependencies
-- [ ] **1.5** Update `collector` tests to only test polling and parsing logic
-- [ ] **1.6** Create `libs/eventbus/` package with its own `pyproject.toml`
-- [ ] **1.7** Define `Handler` protocol in `eventbus/protocols.py`
-- [ ] **1.8** Implement `EventBus` in `eventbus/bus.py`: `subscribe()`, `emit()` (in-memory delivery only for now)
-- [ ] **1.9** Implement `EventLog` in `eventbus/log.py`: `write()`, `mark_processed()`, `fetch_unprocessed()`
-- [ ] **1.10** Wire `EventLog` into `EventBus.emit()` and `replay_unprocessed()`
-- [ ] **1.11** Write `eventbus` tests (subscribe/emit, replay, handler errors don't crash bus)
+- [ ] **1.4** Update `collector` tests to only test polling and parsing logic; move to `tests/libs/`
+- [ ] **1.5** Create `libs/eventbus/` package
+- [ ] **1.6** Define `Handler` protocol in `eventbus/protocols.py`
+- [ ] **1.7** Implement `EventBus` in `eventbus/bus.py`: `subscribe()`, `emit()` (in-memory delivery only for now)
+- [ ] **1.8** Implement `EventLog` in `eventbus/log.py`: `write()`, `mark_processed()`, `fetch_unprocessed()`
+- [ ] **1.9** Wire `EventLog` into `EventBus.emit()` and `replay_unprocessed()`
+- [ ] **1.10** Write `eventbus` tests in `tests/libs/`; cover: subscribe/emit, replay on startup, handler error does not crash bus
 
 ### Phase 2 — Squawk Service Skeleton
 
-- [ ] **2.1** Create `squawk/` top-level directory with `pyproject.toml`
-- [ ] **2.2** Add workspace entry for `squawk` to root `pyproject.toml`
-- [ ] **2.3** Write `squawk/config.py` with all env vars as a frozen `Config` dataclass
-- [ ] **2.4** Write `squawk/db.py`: `create_pool(database_url) -> asyncpg.Pool`
-- [ ] **2.5** Write `squawk/scheduler.py`: `Scheduler` protocol + `APSchedulerBackend`
-- [ ] **2.6** Write `squawk/events.py`: `HexFirstSeen`, `EnrichmentExpired`, `DigestRequested` frozen dataclasses
+- [ ] **2.1** Create `squawk/` package with `__init__.py`
+- [ ] **2.2** Write `squawk/config.py` with all env vars as a frozen `Config` dataclass
+- [ ] **2.3** Write `squawk/db.py`: `create_pool(database_url) -> asyncpg.Pool`
+- [ ] **2.4** Write `squawk/scheduler.py`: `Scheduler` protocol + `APSchedulerBackend`
+- [ ] **2.5** Write `squawk/events.py`: `HexFirstSeen`, `EnrichmentExpired`, `DigestRequested` frozen dataclasses
 
 ### Phase 3 — Schema
 
@@ -693,10 +704,9 @@ the next begins.
 ### Phase 7 — Wiring & Deployment
 
 - [ ] **7.1** Write `squawk/__main__.py` as documented in the wiring section above
-- [ ] **7.2** Write `squawk/Dockerfile`
-- [ ] **7.3** Update `docker-compose.yml`: add `squawk` service, remove `collector` and `bot` services, add ports for metrics (future)
-- [ ] **7.4** Update root `pyproject.toml` workspace to include `squawk`, remove `bot`
-- [ ] **7.5** Update `CLAUDE.md` to reflect new structure
+- [ ] **7.2** Write `Dockerfile` (single, at repo root)
+- [ ] **7.3** Update `docker-compose.yml`: replace `collector` and `bot` services with single `squawk` service
+- [ ] **7.4** Update `CLAUDE.md` to reflect new structure
 
 ### Phase 8 — Migration & Cutover
 
@@ -721,5 +731,6 @@ should be rejected.
 4. **No database writes outside the owning repository.** See table ownership
    table above.
 5. **`libs/collector` and `libs/eventbus` have zero knowledge of squawk domain
-   types.** They must be importable independently.
+   types.** Nothing inside `libs/` may import from `squawk/`. Enforced by
+   convention and code review, not package isolation.
 6. **`__main__.py` contains wiring only.** No business logic.
