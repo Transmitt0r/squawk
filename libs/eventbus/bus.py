@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from datetime import timedelta
+import types
+import typing
+from datetime import datetime, timedelta
 from typing import Any
 
 import asyncpg
@@ -23,6 +25,43 @@ from eventbus.log import EventLog, LogEntry
 from eventbus.protocols import Actor
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_payload(cls: type, payload: dict) -> dict:
+    """Coerce JSON-deserialized values to match dataclass field types.
+
+    Handles datetime fields stored as ISO strings. Supports both Optional[datetime]
+    and datetime | None annotations.
+    """
+    try:
+        hints = typing.get_type_hints(cls)
+    except Exception:
+        return payload
+    result = {}
+    for key, val in payload.items():
+        hint = hints.get(key)
+        if hint is not None and isinstance(val, str):
+            inner = _unwrap_optional(hint)
+            if inner is datetime:
+                val = datetime.fromisoformat(val)
+        result[key] = val
+    return result
+
+
+def _unwrap_optional(hint: Any) -> Any:
+    """Return the inner type of Optional[X] / X | None, or hint unchanged."""
+    # Python 3.10+ union: X | None
+    if isinstance(hint, types.UnionType):
+        args = [a for a in hint.__args__ if a is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    # typing.Optional[X] = typing.Union[X, None]
+    origin = getattr(hint, "__origin__", None)
+    if origin is typing.Union:
+        args = [a for a in hint.__args__ if a is not type(None)]
+        if len(args) == 1:
+            return args[0]
+    return hint
 
 
 class EventBus:
@@ -76,7 +115,7 @@ class EventBus:
                 continue
             cls, actors = self._subscriptions[entry.type]
             try:
-                event = cls(**entry.payload)
+                event = cls(**_coerce_payload(cls, entry.payload))
             except Exception:
                 logger.exception(
                     "replay: failed to deserialize event id=%d type=%r",

@@ -1053,11 +1053,11 @@ for all application queries — no ORM or query builder.
 
 ### Phase 4 — Squawk Skeleton
 
-- [ ] **4.1** Create `squawk/` package with `__init__.py`
-- [ ] **4.2** Write `squawk/config.py`: frozen `Config` dataclass, all env vars
-- [ ] **4.3** Write `squawk/db.py`: `create_pool(database_url) -> asyncpg.Pool`
-- [ ] **4.4** Write `squawk/scheduler.py`: `Scheduler` protocol + `APSchedulerBackend`
-- [ ] **4.5** Write `squawk/events.py`: `HexFirstSeen`, `EnrichmentExpired`,
+- [x] **4.1** Create `squawk/` package with `__init__.py`
+- [x] **4.2** Write `squawk/config.py`: frozen `Config` dataclass, all env vars
+- [x] **4.3** Write `squawk/db.py`: `create_pool(database_url) -> asyncpg.Pool`
+- [x] **4.4** Write `squawk/scheduler.py`: `Scheduler` protocol + `APSchedulerBackend`
+- [x] **4.5** Write `squawk/events.py`: `HexFirstSeen`, `EnrichmentExpired`,
       `DigestRequested` (with `force: bool = False`)
 
 ### Phase 5 — External Clients

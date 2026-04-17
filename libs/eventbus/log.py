@@ -9,9 +9,18 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from typing import Any
 
 import asyncpg
+
+
+def _json_default(obj: Any) -> Any:
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, date):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
 
 @dataclass
@@ -39,7 +48,7 @@ class EventLog:
                 RETURNING id, emitted_at
                 """,
                 event_type,
-                json.dumps(payload),
+                json.dumps(payload, default=_json_default),
             )
         return LogEntry(
             id=row["id"],
