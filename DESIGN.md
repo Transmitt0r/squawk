@@ -444,9 +444,10 @@ class Scheduler(Protocol):
 `scheduler.py` imports APScheduler.
 
 The scheduler emits events onto the bus — it does not call actors directly.
-APScheduler's `AsyncIOScheduler` supports native async jobs, so the job coroutine
-is awaited directly — no `asyncio.create_task()`, which would escape the TaskGroup
-and silently drop exceptions:
+APScheduler's `AsyncIOScheduler` supports native async jobs. The job coroutine
+is scheduled on the running event loop and exceptions surface in APScheduler's
+job executor logs rather than being silently dropped or propagating to the
+TaskGroup:
 
 ```python
 async def _emit_digest() -> None:
@@ -495,13 +496,17 @@ class PollingActor:
                Three paths per hex per poll:
                a) Hex is present + has an open sighting → UPDATE: set last_seen = now,
                   update min/max altitude and min/max distance from current state.
-               b) Hex is present + no open sighting (first-ever or post-gap reappearance)
-                  → INSERT new sighting row; if hex not in aircraft table, INSERT that too.
-                  Returns this hex as a NewSighting.
+               b) Hex is present + no open sighting:
+                  - If hex is NOT in aircraft table (truly new): INSERT aircraft row,
+                    INSERT sighting row, return as NewSighting → emits HexFirstSeen.
+                  - If hex IS in aircraft table (post-gap reappearance): INSERT sighting
+                    row only. Does NOT return as NewSighting. No HexFirstSeen emitted —
+                    the aircraft is already enriched; re-enriching on every gap would
+                    waste Gemini quota and stomp recent enrichment. Re-enrichment is
+                    handled exclusively by TTL expiry via EnrichmentExpired.
                c) Hex is absent (open sighting exists): check sighting's last_seen;
                   if (now - last_seen) > session_timeout → close it (ended_at = last_seen).
                   Otherwise leave open — brief dropout within the timeout window.
-                  Aircraft that reappear after a gap follow path (b).
 
                All three paths are expressed as a single batch operation (not N
                per-aircraft queries). Gap detection reads last_seen from the sightings
@@ -510,7 +515,7 @@ class PollingActor:
                returns list[tuple[str, str | None]] (hex, callsign) for aircraft
                whose enrichment has expired. Callsign included to avoid a second
                round-trip when constructing EnrichmentExpired events.
-        5. Emit HexFirstSeen for each new sighting.
+        5. Emit HexFirstSeen for each NewSighting (new-to-aircraft-table hexes only).
         6. Emit EnrichmentExpired for each expired (hex, callsign) pair.
         7. On shutdown: call sightings.close_open_sightings().
 
@@ -522,8 +527,9 @@ class PollingActor:
 ```
 
 `record_poll()` returns `list[NewSighting]` (a typed dataclass with `hex` and
-`callsign`) — not a bare `list[str]` — so `PollingActor` can populate the
-`callsign` field of `HexFirstSeen` without a second DB query.
+`callsign`) for hexes new to the `aircraft` table only — not for post-gap
+reappearances. `PollingActor` emits `HexFirstSeen` for each and can populate the
+`callsign` field without a second DB query.
 
 ### EnrichmentActor
 
