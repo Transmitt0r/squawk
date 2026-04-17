@@ -23,7 +23,7 @@ bot/
 
 ## Key facts
 
-- Uses Google ADK with `LiteLlm(model="anthropic/claude-haiku-4-5-20251001")`
+- Uses Google ADK with native Gemini (`model="gemini-3-flash-preview"`)
 - Shares TimescaleDB with the collector — `users` and `digests` tables live alongside flight data tables
 - Weekly digest is cached — tokens spent once, sent to all users from cache
 - `/debug` is admin-only, gated by `ADMIN_CHAT_ID` env var

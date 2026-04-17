@@ -7,7 +7,6 @@ import logging
 import uuid
 
 from google.adk.agents import LlmAgent
-from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
@@ -114,7 +113,7 @@ async def generate_digest(config: Config, days: int = 7) -> DigestOutput:
     )
 
     agent = LlmAgent(
-        model=LiteLlm(model="anthropic/claude-haiku-4-5-20251001"),
+        model="gemini-3-flash-preview",
         name="flight_digest_agent",
         description="Generates engaging weekly flight digests from ADS-B data.",
         instruction=SYSTEM_PROMPT,

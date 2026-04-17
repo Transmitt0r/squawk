@@ -12,7 +12,6 @@ description = "Weekly ADS-B flight digest agent via Telegram"
 requires-python = ">=3.13"
 dependencies = [
     "google-adk>=0.5",
-    "litellm>=1.50",
     "python-telegram-bot>=21.0",
     "psycopg2-binary>=2.9",
     "requests>=2.31",

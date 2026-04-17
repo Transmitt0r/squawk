@@ -62,7 +62,7 @@ docker compose up -d
 | `DB_PASSWORD` | — | TimescaleDB password (used by the db service) |
 | `DATABASE_URL` | — | Full connection string for collector and bot: `postgresql://squawk:<password>@db:5432/squawk` |
 | `BOT_TOKEN` | — | Telegram bot token from @BotFather |
-| `ANTHROPIC_API_KEY` | — | Anthropic API key |
+| `GEMINI_API_KEY` | — | Google Gemini API key |
 | `ADMIN_CHAT_ID` | — | Telegram chat ID allowed to use `/debug` (set after first `/start`) |
 | `POLL_INTERVAL` | `5` | Seconds between collector polls |
 | `SESSION_TIMEOUT` | `300` | Seconds of silence before a sighting session ends |

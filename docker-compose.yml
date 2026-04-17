@@ -38,7 +38,7 @@ services:
         condition: service_healthy
     environment:
       BOT_TOKEN: ${BOT_TOKEN}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
       DATABASE_URL: ${DATABASE_URL}
       ADMIN_CHAT_ID: ${ADMIN_CHAT_ID:-}
       DIGEST_SCHEDULE: ${DIGEST_SCHEDULE:-0 8 * * 0}
