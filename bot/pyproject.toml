@@ -27,6 +27,7 @@ squawk-bot = "bot.__main__:main"
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "pytest-asyncio>=0.24",
     "ruff>=0.4",
     "mypy>=1.10",
     "types-requests>=2.31",
