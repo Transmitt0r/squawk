@@ -291,7 +291,7 @@ Table                  Owner (write)          Read access
 ──────────────────────────────────────────────────────────────────────────
 aircraft               SightingRepository     DigestQuery
 sightings              SightingRepository     DigestQuery
-position_updates       SightingRepository     —
+position_updates       SightingRepository     DigestQuery (squawk alerts)
 enriched_aircraft      EnrichmentRepository   DigestQuery, PollingActor (expiry check only)
 callsign_routes        EnrichmentRepository   DigestQuery
 event_log              EventBus               —
@@ -482,6 +482,11 @@ class PollingActor:
         5. Emit HexFirstSeen for each new sighting.
         6. Emit EnrichmentExpired for each expired (hex, callsign) pair.
         7. On shutdown: call sightings.close_open_sightings().
+
+        close_open_sightings() is safe to call on both startup and shutdown —
+        it runs UPDATE WHERE ended_at IS NULL, which is a no-op when no open
+        sightings exist. Under TaskGroup cancellation both paths may execute;
+        the double-call is harmless.
         """
 ```
 
@@ -519,6 +524,21 @@ class EnrichmentActor:
            EnrichmentRepository. Both upserts are idempotent on replay.
         5. Mark each event's processed_at in event_log.
         6. Loop.
+
+        Inbox: asyncio.Queue with no maxsize (unbounded). Deliberate choice:
+        at this scale (~70k sightings/year, ~200 new hexes/day) the queue
+        cannot grow to a problematic size under normal operation. On a fresh
+        install with a large historical aircraft table, replay_unprocessed()
+        will only emit events from the last 24h — not the full history —
+        so the initial burst is bounded. Risk acknowledged; revisit if
+        the service is ever run against a much larger dataset.
+
+        Idempotency on replay: if a batch was processed but processed_at
+        was not marked before a crash, score_batch() is called again on
+        replay. The Gemini call is repeated (token cost), but the DB write
+        (upsert) produces the same result. Acceptable: the 24h replay window
+        bounds the maximum re-spend to one batch of up to ENRICHMENT_BATCH_SIZE
+        aircraft.
         """
 ```
 
@@ -554,6 +574,13 @@ class DigestActor:
         6. Cache via digest_repo.cache(period, digest).
         7. Call broadcaster.broadcast(digest).
         8. Mark event processed_at.
+
+        Cache key semantics: period_end is rounded to the nearest hour before
+        caching and lookup. The scheduler emits period_end = now; without rounding,
+        a restart within the same week causes a cache miss (period_end differs by
+        elapsed seconds) and fires a second Gemini call. Rounding to the hour
+        makes cache hits stable across restarts while keeping the window accurate
+        enough for a weekly digest.
         """
 ```
 
@@ -588,8 +615,10 @@ async def main() -> None:
         photo_client    = PlanespottersClient(http, config.planespotters_url)
         gemini          = GeminiClient(config.gemini_api_key)
 
-        # Broadcaster
-        broadcaster = TelegramBroadcaster(user_repo, config.bot_token)
+        # PTB Application — built once, shared between TelegramBot and
+        # TelegramBroadcaster to avoid two Bot instances on the same token.
+        ptb_app = Application.builder().token(config.bot_token).build()
+        broadcaster = TelegramBroadcaster(ptb_app, user_repo)
 
         # Event bus
         bus = EventBus(pool)
@@ -637,10 +666,12 @@ async def main() -> None:
         scheduler.add_cron_job(_emit_digest, config.digest_schedule, tz="Europe/Berlin")
         scheduler.start()
 
-        # Telegram bot
-        bot = TelegramBot(config.bot_token, user_repo, bus)
+        # Telegram bot — takes the same ptb_app, registers handlers
+        bot = TelegramBot(ptb_app, user_repo, bus)
 
-        # Startup: replay unprocessed events from last 24h
+        # Startup: replay unprocessed events from last 24h.
+        # Events are placed into actor inboxes before the TaskGroup starts the
+        # drain loops — the Queue holds them safely until run() begins consuming.
         await bus.replay_unprocessed(since=timedelta(hours=24))
 
         async with asyncio.TaskGroup() as tg:
@@ -655,7 +686,8 @@ under an existing asyncio loop:
 
 ```python
 class TelegramBot:
-    def __init__(self, token: str, users: UserRepository, bus: EventBus) -> None: ...
+    def __init__(self, app: Application, users: UserRepository, bus: EventBus) -> None: ...
+    # app is the PTB Application built in __main__.py and shared with TelegramBroadcaster.
 
     async def run(self) -> None:
         """
