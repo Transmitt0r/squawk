@@ -148,6 +148,16 @@ async def generate_digest(runner: Runner, days: int = 7) -> DigestOutput:
         session_id=session_id,
         new_message=message,
     ):
+        if event.content and event.content.parts:
+            for part in event.content.parts:
+                if hasattr(part, "function_call") and part.function_call:
+                    fc = part.function_call
+                    logger.info("→ tool call: %s(%s)", fc.name,
+                                ", ".join(f"{k}={v!r}" for k, v in (fc.args or {}).items()))
+                elif hasattr(part, "function_response") and part.function_response:
+                    fr = part.function_response
+                    preview = str(fr.response)[:120].replace("\n", " ")
+                    logger.info("← tool result: %s → %s…", fr.name, preview)
         if event.is_final_response() and event.content and event.content.parts:
             final_text = event.content.parts[0].text
 
