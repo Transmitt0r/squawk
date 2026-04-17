@@ -192,6 +192,11 @@ class EventBus:
         emit() returns immediately — it does NOT await the actor.
         processed_at is marked by the actor after it completes processing,
         not when the event is delivered.
+
+        Order is strict: if the DB write (step 1) raises, step 2 must NOT
+        execute. An event that never reached event_log cannot be replayed
+        on crash — delivering it to an inbox would make it unreplayable.
+        Implementers must not reorder these steps or swallow the DB exception.
         """
 
     async def replay_unprocessed(self, since: timedelta = timedelta(hours=24)) -> None:
@@ -261,10 +266,14 @@ class EnrichmentExpired:
     """Emitted by PollingActor when a known aircraft's enrichment TTL has elapsed.
 
     get_expired() only considers hexes that already have an enriched_aircraft row
-    (WHERE expires_at IS NOT NULL). Brand-new hexes have no row → they are excluded
-    from this query. HexFirstSeen covers them. This prevents emitting both events
-    for the same hex in the same poll cycle, which would cause EnrichmentActor to
-    enrich the same aircraft twice.
+    (i.e. WHERE EXISTS (SELECT 1 FROM enriched_aircraft WHERE hex = $1)).
+    Brand-new hexes have no row → they are excluded from this query. HexFirstSeen
+    covers them. This prevents emitting both events for the same hex in the same
+    poll cycle, which would cause EnrichmentActor to enrich the same aircraft twice.
+
+    Note: expires_at is NOT NULL in the schema, so WHERE expires_at IS NOT NULL
+    does not filter anything. The guard must be a row-existence check, not a
+    column-nullability check.
     """
     hex: str
     callsign: str | None
@@ -482,12 +491,21 @@ class PollingActor:
                returns list[NewSighting] (hex + callsign) for first-ever sightings.
                Stateless: queries sightings WHERE ended_at IS NULL on every call.
                No in-memory session state.
-               Gap detection: for each open sighting whose hex is NOT in the
-               current poll result, record_poll() checks the sighting's last_seen
-               timestamp; if (now - last_seen) > session_timeout it closes that
-               sighting (sets ended_at = last_seen). Aircraft that reappear after
-               the gap get a new sighting row. This faithfully replaces the
-               in-memory gap logic in the old SessionTracker._active dict.
+
+               Three paths per hex per poll:
+               a) Hex is present + has an open sighting → UPDATE: set last_seen = now,
+                  update min/max altitude and min/max distance from current state.
+               b) Hex is present + no open sighting (first-ever or post-gap reappearance)
+                  → INSERT new sighting row; if hex not in aircraft table, INSERT that too.
+                  Returns this hex as a NewSighting.
+               c) Hex is absent (open sighting exists): check sighting's last_seen;
+                  if (now - last_seen) > session_timeout → close it (ended_at = last_seen).
+                  Otherwise leave open — brief dropout within the timeout window.
+                  Aircraft that reappear after a gap follow path (b).
+
+               All three paths are expressed as a single batch operation (not N
+               per-aircraft queries). Gap detection reads last_seen from the sightings
+               row updated in path (a) — not from position_updates.
         4. Call enrichment.get_expired(all_current_hexes, ttl) →
                returns list[tuple[str, str | None]] (hex, callsign) for aircraft
                whose enrichment has expired. Callsign included to avoid a second
@@ -546,12 +564,19 @@ class EnrichmentActor:
         so the initial burst is bounded. Risk acknowledged; revisit if
         the service is ever run against a much larger dataset.
 
-        Idempotency on replay: if a batch was processed but processed_at
-        was not marked before a crash, score_batch() is called again on
-        replay. The Gemini call is repeated (token cost), but the DB write
-        (upsert) produces the same result. Acceptable: the 24h replay window
-        bounds the maximum re-spend to one batch of up to ENRICHMENT_BATCH_SIZE
-        aircraft.
+        Duplicate Gemini calls: two scenarios can cause the same hex to appear
+        in the inbox twice:
+        a) Post-crash replay: a batch was processed but processed_at was not
+           marked before the crash → score_batch() runs again on replay.
+        b) Normal startup: replay_unprocessed() fills the inbox with last-24h
+           events, then polling_actor.run() immediately emits new HexFirstSeen
+           events for aircraft still visible → same hex appears twice if it
+           was in both the replay window and the current scan.
+        In both cases the DB write (upsert) is idempotent — the result is
+        correct. The duplicate Gemini call is accepted: score_batch() deduplicates
+        by hex before calling the API (if the same hex appears in the collected
+        batch window, process it only once). The 24h replay window bounds the
+        maximum re-spend to one batch of up to ENRICHMENT_BATCH_SIZE aircraft.
         """
 ```
 
@@ -588,7 +613,9 @@ class DigestActor:
         """
         Drain loop:
         1. Wait for DigestRequested event from inbox.
-        2. If event.force is False: check digest_repo.get_cached(period) — skip if exists.
+        2. If event.force is False: derive reference_date = period_end.date() and
+           n_days = (period_end - period_start).days; check
+           digest_repo.get_cached(reference_date, n_days) — skip if exists.
         3. Fetch candidates + stats via DigestQuery.
         4. Fetch photos for top candidates via photo_client.
         5. Call digest_client.generate(candidates, stats, photos) → DigestOutput.
@@ -596,12 +623,14 @@ class DigestActor:
         7. Call broadcaster.broadcast(digest).
         8. Mark event processed_at.
 
-        Cache key semantics: period_end is rounded to the nearest hour before
-        caching and lookup. The scheduler emits period_end = now; without rounding,
-        a restart within the same week causes a cache miss (period_end differs by
-        elapsed seconds) and fires a second Gemini call. Rounding to the hour
-        makes cache hits stable across restarts while keeping the window accurate
-        enough for a weekly digest.
+        Cache key semantics: the cache key is (reference_date, n_days) where
+        reference_date = period_end.date() (UTC) and n_days = (period_end - period_start).days.
+        Both period_start and period_end shift on every restart, so equality on
+        either raw timestamp is unreliable. A date + window-length key is stable:
+        the scheduler fires once per week, so reference_date is the same for any
+        restart within the same UTC day, and n_days is always 7.
+        DigestRepository.get_cached / cache accept these two derived values, not
+        the raw timestamps.
         """
 ```
 
@@ -847,11 +876,12 @@ SELECT add_retention_policy('event_log', INTERVAL '90 days');
 
 -- OWNER: DigestRepository (written by DigestActor)
 CREATE TABLE digests (
-    id           BIGINT      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    period_start TIMESTAMPTZ NOT NULL,
-    period_end   TIMESTAMPTZ NOT NULL,
-    content      TEXT        NOT NULL,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    id              BIGINT      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    reference_date  DATE        NOT NULL,   -- period_end.date() UTC; cache key component
+    n_days          INT         NOT NULL,   -- (period_end - period_start).days; cache key component
+    content         TEXT        NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (reference_date, n_days)         -- enforces one digest per window per day
 );
 
 -- OWNER: UserRepository (written by TelegramBot)
@@ -898,14 +928,23 @@ fully recoverable by re-running enrichment after cutover.
 
 **Cutover steps:**
 1. Stop `collector` and `bot` services
-2. Apply new schema (new tables; existing `aircraft`, `sightings`, `position_updates`
-   remain untouched)
-3. Drop enrichment columns from `aircraft` (`registration`, `type`, `operator`,
+2. Apply new schema (new tables)
+3. Add `last_seen` to `sightings`:
+   ```sql
+   ALTER TABLE sightings ADD COLUMN last_seen TIMESTAMPTZ;
+   UPDATE sightings SET last_seen = COALESCE(ended_at, started_at);
+   ALTER TABLE sightings ALTER COLUMN last_seen SET NOT NULL;
+   ```
+   Backfill logic: closed sightings use `ended_at`; any open sightings (orphaned
+   from the old collector) use `started_at` as a conservative approximation.
+   `close_open_sightings()` runs on startup anyway, so open rows are immediately
+   closed and their `last_seen` value is never read for gap detection.
+4. Drop enrichment columns from `aircraft` (`registration`, `type`, `operator`,
    `flag`, `fetched_at`, `story_score`, `story_tags`, `lm_annotation`, `enriched_at`)
-4. Truncate `digests` table — old rows are JSON blobs from the old Pydantic model
+5. Truncate `digests` table — old rows are JSON blobs from the old Pydantic model
    and will fail deserialisation into the new `DigestOutput`. Truncate is safe:
    digest content is regenerated on the next Sunday or via `/debug`.
-5. Start `squawk` service — enrichment backfill begins automatically via
+6. Start `squawk` service — enrichment backfill begins automatically via
    `HexFirstSeen` replay or enrichment TTL expiry on first poll cycle
 
 **What is lost and acceptable:**
@@ -996,8 +1035,8 @@ passing before the next phase begins.
       `get_expired(hexes, ttl) -> list[tuple[str, str | None]]` (hex + callsign).
       Owns: `enriched_aircraft`, `callsign_routes`
 - [ ] **6.3** Write `squawk/repositories/digest.py`: `DigestRepository` with
-      `get_cached(period_start, period_end) -> DigestOutput | None`,
-      `cache(period_start, period_end, digest)`. Owns: `digests`
+      `get_cached(reference_date, n_days) -> DigestOutput | None`,
+      `cache(reference_date, n_days, digest)`. Owns: `digests`
 - [ ] **6.4** Write `squawk/repositories/users.py`: `UserRepository` with
       `register(chat_id, username) -> bool`, `unregister(chat_id) -> bool`,
       `get_active() -> list[int]`. Owns: `users`
