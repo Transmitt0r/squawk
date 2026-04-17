@@ -79,11 +79,10 @@ squawk/
   scheduler.py               ← Scheduler protocol + APSchedulerBackend
 
   clients/                   ← typed HTTP clients + AI clients, each behind a Protocol
-    protocols.py             ← AircraftLookupClient, PhotoClient, RouteClient, ScoringClient
-    adsbdb.py                ← AdsbbClient (implements AircraftLookupClient)
-    planespotters.py         ← PlanespottersClient (implements PhotoClient)
-    routes.py                ← RoutesClient (implements RouteClient)
-    gemini.py                ← GeminiClient (implements ScoringClient and DigestClient)
+    adsbdb.py                ← AircraftInfo, AircraftLookupClient, AdsbbClient
+    planespotters.py         ← PhotoInfo, PhotoClient, PlanespottersClient
+    routes.py                ← RouteInfo, RouteClient, RoutesClient
+    gemini.py                ← ScoreResult, DigestOutput, ScoringClient, DigestClient, GeminiClient
 
   repositories/              ← write repositories, one per table-owner
     sightings.py             ← SightingRepository (aircraft, sightings, position_updates)
@@ -100,10 +99,9 @@ squawk/
     digest.py                ← DigestActor
 
   bot/
-    protocols.py             ← Broadcaster protocol
     app.py                   ← TelegramBot: PTB wiring, command registration, run()
     handlers.py              ← /start /stop /debug Telegram command handlers
-    broadcaster.py           ← TelegramBroadcaster (implements Broadcaster)
+    broadcaster.py           ← Broadcaster protocol + TelegramBroadcaster
 
 tests/
   libs/
@@ -335,10 +333,10 @@ All external HTTP and AI calls go through typed clients. No `requests.get()`,
 - `5xx` → retry up to `max_retries` with backoff
 - Other errors → raise immediately
 
-**Protocols:**
+**Protocols and data classes** are defined inline in each client module. Each module's protocol is its public interface; the concrete class is the implementation detail. `GeminiClient` implements both `ScoringClient` and `DigestClient` — both protocols live in `gemini.py`.
 
 ```python
-# squawk/clients/protocols.py
+# squawk/clients/adsbdb.py
 
 @dataclass(frozen=True)
 class AircraftInfo:
@@ -346,6 +344,11 @@ class AircraftInfo:
     type: str | None
     operator: str | None
     flag: str | None
+
+class AircraftLookupClient(Protocol):
+    async def lookup(self, hex: str) -> AircraftInfo | None: ...
+
+# squawk/clients/routes.py
 
 @dataclass(frozen=True)
 class RouteInfo:
@@ -358,10 +361,20 @@ class RouteInfo:
     dest_city: str | None
     dest_country: str | None
 
+class RouteClient(Protocol):
+    async def lookup(self, callsign: str) -> RouteInfo | None: ...
+
+# squawk/clients/planespotters.py
+
 @dataclass(frozen=True)
 class PhotoInfo:
     url: str
     caption: str
+
+class PhotoClient(Protocol):
+    async def lookup(self, hex: str) -> PhotoInfo | None: ...
+
+# squawk/clients/gemini.py
 
 @dataclass(frozen=True)
 class ScoreResult:
@@ -374,15 +387,6 @@ class DigestOutput:
     text: str
     photo_url: str | None = None
     photo_caption: str | None = None
-
-class AircraftLookupClient(Protocol):
-    async def lookup(self, hex: str) -> AircraftInfo | None: ...
-
-class RouteClient(Protocol):
-    async def lookup(self, callsign: str) -> RouteInfo | None: ...
-
-class PhotoClient(Protocol):
-    async def lookup(self, hex: str) -> PhotoInfo | None: ...
 
 class ScoringClient(Protocol):
     async def score_batch(
@@ -408,15 +412,15 @@ implementation of each protocol is used in actor unit tests.
 ## Broadcaster
 
 ```python
-# squawk/bot/protocols.py
+# squawk/bot/broadcaster.py
 
 class Broadcaster(Protocol):
     async def broadcast(self, digest: DigestOutput) -> None:
         """Send digest to all active users."""
 ```
 
-`TelegramBroadcaster` is the only concrete implementation. `DigestActor` receives
-a `Broadcaster` — it does not import Telegram.
+`TelegramBroadcaster` is the only concrete implementation and lives in the same
+module. `DigestActor` receives a `Broadcaster` — it does not import Telegram.
 
 ---
 
@@ -1016,18 +1020,11 @@ passing before the next phase begins.
 
 ### Phase 5 — External Clients
 
-- [ ] **5.1** Write `squawk/clients/protocols.py`: all dataclasses and protocols
-      as documented above (`AircraftInfo`, `RouteInfo`, `PhotoInfo`, `ScoreResult`,
-      `DigestOutput`, `AircraftLookupClient`, `RouteClient`, `PhotoClient`,
-      `ScoringClient`, `DigestClient`)
-- [ ] **5.2** Implement `squawk/clients/adsbdb.py`: `AdsbbClient` with retry policy
-- [ ] **5.3** Implement `squawk/clients/routes.py`: `RoutesClient` with retry policy
-- [ ] **5.4** Implement `squawk/clients/planespotters.py`: `PlanespottersClient`
-      with retry policy
-- [ ] **5.5** Implement `squawk/clients/gemini.py`: `GeminiClient` implementing
-      both `ScoringClient` and `DigestClient`; use batch scoring prompt validated
-      in task 1.1
-- [ ] **5.6** Write client tests with mocked `aiohttp` responses: 200, 404 (→ None),
+- [ ] **5.1** Implement `squawk/clients/adsbdb.py`: `AircraftInfo`, `AircraftLookupClient` protocol, `AdsbbClient` with retry policy
+- [ ] **5.2** Implement `squawk/clients/routes.py`: `RouteInfo`, `RouteClient` protocol, `RoutesClient` with retry policy
+- [ ] **5.3** Implement `squawk/clients/planespotters.py`: `PhotoInfo`, `PhotoClient` protocol, `PlanespottersClient` with retry policy
+- [ ] **5.4** Implement `squawk/clients/gemini.py`: `ScoreResult`, `DigestOutput`, `ScoringClient` and `DigestClient` protocols, `GeminiClient` implementing both; use batch scoring prompt validated in task 1.1
+- [ ] **5.5** Write client tests with mocked `aiohttp` responses: 200, 404 (→ None),
       429 (→ retry), 500 (→ retry), exhausted retries (→ raise)
 
 ### Phase 6 — Repositories
@@ -1054,8 +1051,7 @@ passing before the next phase begins.
 
 ### Phase 7 — Actors & Bot
 
-- [ ] **7.1** Write `squawk/bot/protocols.py`: `Broadcaster` protocol
-- [ ] **7.2** Write `squawk/bot/broadcaster.py`: `TelegramBroadcaster`
+- [ ] **7.1** Write `squawk/bot/broadcaster.py`: `Broadcaster` protocol + `TelegramBroadcaster`
 - [ ] **7.3** Write `squawk/bot/handlers.py`: `/start`, `/stop`, `/debug` handlers;
       `/debug` emits `DigestRequested(period_start=now-24h, period_end=now, force=True)`
 - [ ] **7.4** Write `squawk/bot/app.py`: `TelegramBot` using low-level PTB API
