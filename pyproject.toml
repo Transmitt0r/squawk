@@ -38,6 +38,12 @@ select = ["E", "F", "I", "TID"]
 [tool.ruff.lint.isort]
 known-first-party = ["squawk", "tar1090", "eventbus"]
 
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# libs/ packages must not import from squawk — enforced by TID251.
+# squawk/ uses relative imports internally, so this rule does not
+# trigger for legitimate intra-squawk imports.
+"squawk" = {msg = "libs packages (tar1090, eventbus) must not import from squawk"}
+
 [tool.mypy]
 ignore_missing_imports = true
 

@@ -1006,15 +1006,15 @@ passing before the next phase begins.
         never occurs. The DESIGN.md wiring is correct.
       - ExceptionGroup surfaces as expected; `except* RuntimeError` catches it cleanly.
       - Validation script: `scripts/validate_ptb_taskgroup.py`
-- [ ] **1.3** Consolidate to single root `pyproject.toml`: merge all dependencies,
+- [x] **1.3** Consolidate to single root `pyproject.toml`: merge all dependencies,
       remove uv workspace config, configure hatchling to include `libs/` and `squawk/`
       packages, add ruff banned-import rules (`libs/tar1090` and `libs/eventbus` may
       not import from `squawk`)
-- [ ] **1.4** Create `libs/tar1090/`: strip `collector/` of all DB dependencies
+- [x] **1.4** Create `libs/tar1090/`: strip `collector/` of all DB dependencies
       (`asyncpg`, `db.py`, `tracker.py`, `schema.sql`, `python-dotenv`); reduce
       public API to `poll(url, timeout) -> list[AircraftState]`; move HTTP logic
       to `_http.py`
-- [ ] **1.5** Move and update `tar1090` tests to `libs/tar1090/test_tar1090.py`
+- [x] **1.5** Move and update `tar1090` tests to `libs/tar1090/test_tar1090.py`
 
 ### Phase 2 — Schema
 
