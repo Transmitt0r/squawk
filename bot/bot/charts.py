@@ -72,8 +72,9 @@ def generate_traffic_chart(database_url: str, days: int = 7) -> bytes | None:
 
             # --- hourly curve ---
             if hourly:
-                hours = [row[0] for row in hourly]
-                counts_h = [row[1] for row in hourly]
+                hourly_map = {row[0]: row[1] for row in hourly}
+                hours = list(range(24))
+                counts_h = [hourly_map.get(h, 0) for h in hours]
                 ax_hour.plot(hours, counts_h, color="steelblue", linewidth=2, zorder=3)
                 ax_hour.fill_between(hours, counts_h, alpha=0.15, color="steelblue")
                 ax_hour.set_xticks(range(0, 24, 3))
