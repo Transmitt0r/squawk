@@ -475,6 +475,12 @@ class PollingActor:
                returns list[NewSighting] (hex + callsign) for first-ever sightings.
                Stateless: queries sightings WHERE ended_at IS NULL on every call.
                No in-memory session state.
+               Gap detection: for each open sighting whose hex is NOT in the
+               current poll result, record_poll() checks the sighting's last_seen
+               timestamp; if (now - last_seen) > session_timeout it closes that
+               sighting (sets ended_at = last_seen). Aircraft that reappear after
+               the gap get a new sighting row. This faithfully replaces the
+               in-memory gap logic in the old SessionTracker._active dict.
         4. Call enrichment.get_expired(all_current_hexes, ttl) →
                returns list[tuple[str, str | None]] (hex, callsign) for aircraft
                whose enrichment has expired. Callsign included to avoid a second
@@ -546,6 +552,14 @@ One Gemini call per batch. **Validation required** (see Phase 1 checklist): conf
 Gemini reliably returns a valid JSON array with one entry per input aircraft before
 committing to this design. Include a fallback: if the array length doesn't match
 input length, fall back to per-aircraft calls for that batch.
+
+**Structured output enforcement:** `GeminiClient.score_batch()` must use the Gemini
+API's constrained generation: `response_mime_type="application/json"` and
+`response_schema=list[ScoreResult]`. This makes the array-length fallback a defence
+against edge cases rather than the primary reliability mechanism — the API enforces
+the schema at generation time. Phase 1.1 must validate this approach (not just the
+prompt) and document any schema constraints imposed by the API (e.g. field name
+restrictions, no nested generics).
 
 ### DigestActor
 
@@ -695,6 +709,24 @@ class TelegramBot:
         rather than run_polling(), which manages its own event loop.
         Registers handlers from bot/handlers.py.
         Runs until cancelled.
+
+        Teardown under TaskGroup cancellation: run() must guarantee PTB shutdown
+        even when cancelled by a sibling task failure. Implement with try/finally:
+
+            await app.initialize()
+            await app.start()
+            await app.updater.start_polling()
+            try:
+                await asyncio.get_event_loop().create_future()  # run forever
+            finally:
+                await app.updater.stop()
+                await app.stop()
+                await app.shutdown()
+
+        The finally block executes regardless of whether cancellation is via
+        CancelledError (sibling failure) or normal exit. This must be validated
+        in task 1.2 — confirm PTB shutdown completes cleanly when the TaskGroup
+        is cancelled from outside.
         """
 ```
 
