@@ -144,8 +144,10 @@ async def generate_digest(runner: Runner, days: int = 7) -> DigestOutput:
         raise RuntimeError("Agent produced no output")
 
     # Extract JSON from ```json ... ``` code block
+    logger.info("Agent output tail: %s", final_text[-400:])
     match = re.search(r"```json\s*(\{.*?\})\s*```", final_text, re.DOTALL)
     if not match:
+        logger.error("No JSON block found. Tail of output: %s", final_text[-300:])
         raise RuntimeError(f"No JSON block found in agent output: {final_text!r}")
     result = DigestOutput.model_validate_json(match.group(1))
     logger.info("Digest generated (%d chars, photo=%s, photo_url=%s)",

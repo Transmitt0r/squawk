@@ -4,30 +4,30 @@ from __future__ import annotations
 
 import io
 import logging
-from datetime import datetime, timezone
+from datetime import date
 
 import matplotlib
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 import psycopg2
 
 matplotlib.use("Agg")  # headless, no display needed
 
 logger = logging.getLogger(__name__)
 
+_DE_WEEKDAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+
 
 def generate_traffic_chart(database_url: str, days: int = 7) -> bytes | None:
     """
     Generate a two-panel PNG chart:
-      - Top: bar chart of flights per day
-      - Bottom: line chart of flights per hour of day (aggregated across the period)
+      - Top: bar chart of flights per day (weekday labels, date range in title)
+      - Bottom: line chart of flights by hour of day (aggregated across the period)
 
     Returns PNG bytes, or None on failure.
     """
     try:
         with psycopg2.connect(database_url) as conn:
             with conn.cursor() as cur:
-                # Flights per day (in local time Europe/Berlin)
                 cur.execute("""
                     SELECT
                         DATE(started_at AT TIME ZONE 'Europe/Berlin') AS day,
@@ -39,7 +39,6 @@ def generate_traffic_chart(database_url: str, days: int = 7) -> bytes | None:
                 """, {"days": days})
                 daily = cur.fetchall()
 
-                # Flights per hour of day (aggregated, local time)
                 cur.execute("""
                     SELECT
                         EXTRACT(HOUR FROM started_at AT TIME ZONE 'Europe/Berlin')::int AS hour,
@@ -54,20 +53,24 @@ def generate_traffic_chart(database_url: str, days: int = 7) -> bytes | None:
         if not daily and not hourly:
             return None
 
-        # --- build figure (xkcd style!) ---
         with plt.xkcd():
-            fig, (ax_day, ax_hour) = plt.subplots(2, 1, figsize=(7, 5))
-            fig.subplots_adjust(hspace=0.55)
+            fig, (ax_day, ax_hour) = plt.subplots(2, 1, figsize=(7, 5.5))
 
             # --- daily bars ---
             if daily:
-                days_x = [row[0] for row in daily]
+                dates: list[date] = [row[0] for row in daily]
                 counts = [row[1] for row in daily]
-                ax_day.bar(days_x, counts, color="steelblue", width=0.6, zorder=3)
-                ax_day.xaxis.set_major_formatter(mdates.DateFormatter("%-d. %b"))
-                ax_day.xaxis.set_major_locator(mdates.DayLocator())
-                plt.setp(ax_day.xaxis.get_majorticklabels(), rotation=30, ha="right")
-                ax_day.set_title("Flüge pro Tag")
+                x = list(range(len(dates)))
+                labels = [_DE_WEEKDAYS[d.weekday()] for d in dates]
+
+                ax_day.bar(x, counts, color="steelblue", width=0.6, zorder=3)
+                ax_day.set_xticks(x)
+                ax_day.set_xticklabels(labels)
+
+                # Date range in title
+                fmt = lambda d: f"{d.day}.{d.month}."
+                date_range = f"{fmt(dates[0])} – {fmt(dates[-1])}" if len(dates) > 1 else fmt(dates[0])
+                ax_day.set_title(f"Flüge pro Tag ({date_range})")
                 ax_day.set_ylabel("Flüge")
 
             # --- hourly curve ---
@@ -82,6 +85,8 @@ def generate_traffic_chart(database_url: str, days: int = 7) -> bytes | None:
                 ax_hour.set_title("Flüge nach Uhrzeit")
                 ax_hour.set_ylabel("Flüge")
                 ax_hour.set_xlim(0, 23)
+
+            fig.tight_layout(pad=1.5)
 
         buf = io.BytesIO()
         fig.savefig(buf, format="png", dpi=130, bbox_inches="tight")
