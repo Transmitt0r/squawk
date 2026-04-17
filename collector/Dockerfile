@@ -15,4 +15,4 @@ COPY collector/collector/ collector/collector/
 RUN uv sync --locked --no-dev --package flighttracker
 
 ENV PATH="/app/.venv/bin:$PATH"
-CMD ["python", "-m", "collector"]
+CMD ["squawk-collector"]

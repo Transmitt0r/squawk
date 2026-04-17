@@ -562,7 +562,7 @@ wheels = [
 [[package]]
 name = "flighttracker"
 version = "0.1.0"
-source = { virtual = "collector" }
+source = { editable = "collector" }
 dependencies = [
     { name = "aiohttp" },
     { name = "asyncpg" },
@@ -3109,7 +3109,7 @@ wheels = [
 [[package]]
 name = "squawk-bot"
 version = "0.1.0"
-source = { virtual = "bot" }
+source = { editable = "bot" }
 dependencies = [
     { name = "apscheduler" },
     { name = "cachetools" },

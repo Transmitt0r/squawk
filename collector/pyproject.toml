@@ -1,3 +1,10 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["collector"]
+
 [project]
 name = "flighttracker"
 version = "0.1.0"
@@ -8,6 +15,9 @@ dependencies = [
     "asyncpg>=0.29",
     "python-dotenv>=1.0",
 ]
+
+[project.scripts]
+squawk-collector = "collector.__main__:main"
 
 [project.optional-dependencies]
 dev = [

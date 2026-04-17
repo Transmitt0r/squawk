@@ -19,4 +19,4 @@ COPY bot/bot/ bot/bot/
 RUN uv sync --locked --no-dev --package squawk-bot
 
 ENV PATH="/app/.venv/bin:$PATH"
-CMD ["python", "-m", "bot"]
+CMD ["squawk-bot"]
