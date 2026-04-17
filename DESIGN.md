@@ -258,7 +258,14 @@ class HexFirstSeen:
 
 @dataclass(frozen=True)
 class EnrichmentExpired:
-    """Emitted by PollingActor when a known aircraft's enrichment TTL has elapsed."""
+    """Emitted by PollingActor when a known aircraft's enrichment TTL has elapsed.
+
+    get_expired() only considers hexes that already have an enriched_aircraft row
+    (WHERE expires_at IS NOT NULL). Brand-new hexes have no row → they are excluded
+    from this query. HexFirstSeen covers them. This prevents emitting both events
+    for the same hex in the same poll cycle, which would cause EnrichmentActor to
+    enrich the same aircraft twice.
+    """
     hex: str
     callsign: str | None
 
@@ -688,11 +695,17 @@ async def main() -> None:
         # drain loops — the Queue holds them safely until run() begins consuming.
         await bus.replay_unprocessed(since=timedelta(hours=24))
 
-        async with asyncio.TaskGroup() as tg:
-            tg.create_task(polling_actor.run())
-            tg.create_task(enrichment_actor.run())
-            tg.create_task(digest_actor.run())
-            tg.create_task(bot.run())
+        try:
+            async with asyncio.TaskGroup() as tg:
+                tg.create_task(polling_actor.run())
+                tg.create_task(enrichment_actor.run())
+                tg.create_task(digest_actor.run())
+                tg.create_task(bot.run())
+        finally:
+            scheduler.shutdown()
+            # bot.run() guarantees PTB teardown via its own try/finally (see below).
+            # scheduler.shutdown() stops the APScheduler background thread, which is
+            # not a managed task and would otherwise outlive the process teardown.
 ```
 
 **TelegramBot** lives in `squawk/bot/app.py`. It wraps PTB's low-level API to run
@@ -762,6 +775,7 @@ CREATE TABLE sightings (
     callsign     TEXT,
     started_at   TIMESTAMPTZ NOT NULL,
     ended_at     TIMESTAMPTZ,
+    last_seen    TIMESTAMPTZ NOT NULL,  -- updated on every record_poll(); used for gap detection
     min_altitude INT,
     max_altitude INT,
     min_distance FLOAT,
