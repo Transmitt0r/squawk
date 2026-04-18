@@ -727,6 +727,35 @@ functions. Delete the event bus infrastructure.
 - [ ] **9.2** Update `CLAUDE.md` to reflect new structure
 - [ ] **9.3** Delete `bot/` and `collector/` directories
 
+#### Phase 9 Notes
+
+**Cutover procedure (9.1):**
+1. The existing production DB has the v1 schema (with enrichment columns on `aircraft`,
+   no `enriched_aircraft` table, etc.). The cutover migration
+   (`20260417192450_cutover_from_v1.sql`) handles this transform. **Do NOT run the
+   initial migration on the production DB** — dbmate will skip it if the v1 tables
+   already exist, then apply only the cutover migration.
+2. For a **fresh DB** (e.g. testing), dbmate applies both migrations in order — this
+   works cleanly.
+3. The `ENRICHMENT_BATCH_SIZE=1` setting currently in `.env` is for testing only.
+   Reset to the default (20) before production deployment.
+4. After cutover, enrichment data (scores, annotations, routes) will be re-generated
+   within hours via TTL expiry. Old cached digests are incompatible and will be
+   regenerated on next scheduled run or `/debug`.
+
+**What to update in CLAUDE.md (9.2):**
+- Remove the three-component table (`collector`, `bot`, `feeder`). The repo is now
+  `squawk` (single service) + `feeder` (unchanged, runs on Pi).
+- Update dev environment section: single `pyproject.toml`, single `uv.lock`.
+- Update testing section: all tests under `squawk/`, no separate `bot/` or `collector/`
+  test suites.
+
+**What to delete (9.3):**
+- `bot/` directory (old bot component — all code ported to `squawk/`)
+- `collector/` directory (old collector component — all code ported to `squawk/`)
+- `scripts/` directory (validation prototypes, no longer needed)
+- Any stray `CLAUDE.md` files inside deleted directories
+
 ---
 
 ## Invariants
