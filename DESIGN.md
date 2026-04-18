@@ -1101,10 +1101,10 @@ for all application queries — no ORM or query builder.
 - [x] **6.4** Write `squawk/repositories/users.py`: `UserRepository` with
       `register(chat_id, username) -> bool`, `unregister(chat_id) -> bool`,
       `get_active() -> list[int]`. Owns: `users`
-- [ ] **6.5** Write `squawk/queries/digest.py`: `DigestQuery` with
+- [x] **6.5** Write `squawk/queries/digest.py`: `DigestQuery` with
       `get_candidates(days) -> list[DigestCandidate]`,
       `get_stats(days) -> DigestStats`. Read-only. May join any table.
-- [ ] **6.6** Write repository and query tests against a real test database (no
+- [x] **6.6** Write repository and query tests against a real test database (no
       mocks for DB layer)
 
 ### Phase 7 — Actors & Bot
