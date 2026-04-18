@@ -1,6 +1,6 @@
 -- migrate:up
 
--- OWNER: SightingRepository (written by PollingActor)
+-- OWNER: SightingRepository
 CREATE TABLE aircraft (
     hex         TEXT        PRIMARY KEY,
     first_seen  TIMESTAMPTZ NOT NULL,
@@ -40,7 +40,7 @@ ALTER TABLE position_updates SET (timescaledb.compress, timescaledb.compress_ord
 SELECT add_compression_policy('position_updates', INTERVAL '7 days');
 SELECT add_retention_policy('position_updates', INTERVAL '90 days');
 
--- OWNER: EnrichmentRepository (written by EnrichmentActor)
+-- OWNER: EnrichmentRepository
 CREATE TABLE enriched_aircraft (
     hex           TEXT        PRIMARY KEY REFERENCES aircraft(hex),
     registration  TEXT,
@@ -67,31 +67,7 @@ CREATE TABLE callsign_routes (
     fetched_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- OWNER: EventBus
-CREATE TABLE event_log (
-    id           BIGSERIAL    NOT NULL,
-    type         TEXT         NOT NULL,
-    payload      JSONB        NOT NULL,
-    emitted_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    processed_at TIMESTAMPTZ,
-
-    PRIMARY KEY (id, emitted_at)  -- composite required for hypertable
-);
-
--- Partial index: startup replay query must not scan all chunks.
--- Note: partial indexes do not survive TimescaleDB chunk compression. In practice
--- the 24h replay window only ever touches the latest (uncompressed) chunk, so this
--- is a non-issue under normal operation.
-CREATE INDEX event_log_unprocessed
-    ON event_log (emitted_at)
-    WHERE processed_at IS NULL;
-
-SELECT create_hypertable('event_log', 'emitted_at');
-ALTER TABLE event_log SET (timescaledb.compress, timescaledb.compress_orderby = 'emitted_at DESC');
-SELECT add_compression_policy('event_log', INTERVAL '7 days');
-SELECT add_retention_policy('event_log', INTERVAL '90 days');
-
--- OWNER: DigestRepository (written by DigestActor)
+-- OWNER: DigestRepository
 CREATE TABLE digests (
     id              BIGINT      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     reference_date  DATE        NOT NULL,   -- period_end.date() UTC; cache key component
@@ -101,7 +77,7 @@ CREATE TABLE digests (
     UNIQUE (reference_date, n_days)         -- enforces one digest per window per day
 );
 
--- OWNER: UserRepository (written by TelegramBot)
+-- OWNER: UserRepository
 CREATE TABLE users (
     chat_id       BIGINT      PRIMARY KEY,
     username      TEXT,
@@ -113,7 +89,6 @@ CREATE TABLE users (
 
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS digests;
-DROP TABLE IF EXISTS event_log;
 DROP TABLE IF EXISTS callsign_routes;
 DROP TABLE IF EXISTS enriched_aircraft;
 DROP TABLE IF EXISTS position_updates;

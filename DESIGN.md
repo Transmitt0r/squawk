@@ -685,7 +685,7 @@ functions. Delete the event bus infrastructure.
 
 - [x] **6.5** Create `squawk/__main__.py` as documented in the Main Wiring section.
 
-- [ ] **6.6** Clean up:
+- [x] **6.6** Clean up:
       - Delete `libs/eventbus/` (entire directory)
       - Delete `squawk/events.py`
       - Delete `squawk/actors/` (entire directory)

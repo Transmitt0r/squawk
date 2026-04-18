@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 # libs/ packages are included by path; Python package names are derived from the
 # directory name: libs/tar1090 → tar1090, libs/eventbus → eventbus.
-packages = ["squawk", "libs/tar1090", "libs/eventbus"]
+packages = ["squawk", "libs/tar1090"]
 
 [project]
 name = "squawk"
@@ -41,7 +41,7 @@ dev = [
 select = ["E", "F", "I", "TID"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["squawk", "tar1090", "eventbus"]
+known-first-party = ["squawk", "tar1090"]
 
 [tool.ruff.lint.per-file-ignores]
 # squawk/ files are allowed to import from squawk and from libs — TID251
@@ -51,7 +51,7 @@ known-first-party = ["squawk", "tar1090", "eventbus"]
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 # libs/ packages must not import from squawk — enforced by TID251.
 # The per-file-ignores above limits this rule to libs/ only.
-"squawk" = {msg = "libs packages (tar1090, eventbus) must not import from squawk"}
+"squawk" = {msg = "libs packages (tar1090) must not import from squawk"}
 
 [tool.mypy]
 ignore_missing_imports = true

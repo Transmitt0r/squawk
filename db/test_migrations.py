@@ -21,7 +21,6 @@ EXPECTED_TABLES = {
     "position_updates",
     "enriched_aircraft",
     "callsign_routes",
-    "event_log",
     "digests",
     "users",
 }
@@ -67,7 +66,7 @@ async def test_migrate_up_and_down(db_url: str) -> None:
             "SELECT hypertable_name FROM timescaledb_information.hypertables"
         )
         hypertable_names = {row["hypertable_name"] for row in hypertables}
-        expected_hypertables = {"position_updates", "event_log"}
+        expected_hypertables = {"position_updates"}
         assert expected_hypertables.issubset(hypertable_names), (
             f"Missing hypertables: {expected_hypertables - hypertable_names}"
         )
