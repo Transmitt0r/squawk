@@ -540,6 +540,7 @@ class EnrichmentActor:
         enrichment_ttl: timedelta,
         batch_size: int,
         flush_interval: float,
+        bus: EventBus,           # needed to call mark_processed()
     ) -> None: ...
 
     @property
@@ -629,6 +630,7 @@ class DigestActor:
         photo_client: PhotoClient,
         digest_client: DigestClient,
         broadcaster: Broadcaster,
+        bus: EventBus,           # needed to call mark_processed()
     ) -> None: ...
 
     @property
@@ -719,6 +721,7 @@ async def main() -> None:
             enrichment_ttl=config.enrichment_ttl,
             batch_size=config.enrichment_batch_size,
             flush_interval=config.enrichment_flush_interval,
+            bus=bus,
         )
         digest_actor = DigestActor(
             query=digest_query,
@@ -726,6 +729,7 @@ async def main() -> None:
             photo_client=photo_client,
             digest_client=digest_client,
             broadcaster=broadcaster,
+            bus=bus,
         )
 
         # Bus subscriptions
@@ -1116,11 +1120,11 @@ for all application queries — no ORM or query builder.
       validated in task 1.2
 - [ ] **7.5** Write `squawk/actors/polling.py`: `PollingActor` as documented;
       crash recovery via `close_open_sightings()` on startup and shutdown
-- [ ] **7.6** Write `squawk/actors/enrichment.py`: `ScoreResult` dataclass,
+- [x] **7.6** Write `squawk/actors/enrichment.py`: `ScoreResult` dataclass,
       `ScoringClient` protocol, `_GeminiScoringClient` (ADK-backed, private),
       `EnrichmentActor` with inbox, batch collect loop, idempotent upsert via
       `EnrichmentRepository.store()`
-- [ ] **7.7** Write `squawk/actors/digest.py`: `DigestOutput` dataclass,
+- [x] **7.7** Write `squawk/actors/digest.py`: `DigestOutput` dataclass,
       `DigestClient` protocol, `_GeminiDigestClient` (ADK-backed, private),
       `DigestActor` with inbox, `force` bypass of cache check
 - [ ] **7.8** Write actor tests with fake bus, fake repositories, fake clients
