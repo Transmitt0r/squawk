@@ -723,9 +723,9 @@ functions. Delete the event bus infrastructure.
 
 ### Phase 9 — Cutover
 
-- [ ] **9.1** Stop `collector` and `bot` in production, run migration, deploy `squawk`
-- [ ] **9.2** Update `CLAUDE.md` to reflect new structure
-- [ ] **9.3** Delete `bot/` and `collector/` directories
+- [x] **9.1** Stop `collector` and `bot` in production, run migration, deploy `squawk`
+- [x] **9.2** Update `CLAUDE.md` to reflect new structure
+- [x] **9.3** Delete `bot/` and `collector/` directories
 
 #### Phase 9 Notes
 
