@@ -697,18 +697,18 @@ functions. Delete the event bus infrastructure.
 
 ### Phase 7 — Tests
 
-- [ ] **7.1** Pipeline integration test (`squawk/test_pipeline.py`): mock
+- [x] **7.1** Pipeline integration test (`squawk/test_pipeline.py`): mock
       `tar1090.poll` to return known states and mock `ScoringClient` to return
       fixed scores. Use a real test DB. Verify: sightings created, enrichment
       stored for new aircraft, TTL expiry triggers re-enrichment.
 
-- [ ] **7.2** Digest flow test (`squawk/test_digest.py`): seed the test DB with
+- [x] **7.2** Digest flow test (`squawk/test_digest.py`): seed the test DB with
       known aircraft + enrichment data. Mock `DigestClient` and `PhotoClient`.
       Verify: `generate_digest` queries correctly, caches result, calls
       broadcaster. Verify cache hit skips generation. Verify `force=True`
       bypasses cache.
 
-- [ ] **7.3** Bot handler tests (`squawk/bot/test_handlers.py`): mock
+- [x] **7.3** Bot handler tests (`squawk/bot/test_handlers.py`): mock
       `UserRepository` and `on_debug_digest`. Verify `/start` registers,
       `/stop` unregisters, `/debug` rejects non-admin, `/debug` calls
       `on_debug_digest` for admin.
