@@ -1098,7 +1098,7 @@ for all application queries — no ORM or query builder.
 - [x] **6.3** Write `squawk/repositories/digest.py`: `DigestRepository` with
       `get_cached(reference_date, n_days) -> DigestOutput | None`,
       `cache(reference_date, n_days, digest)`. Owns: `digests`
-- [ ] **6.4** Write `squawk/repositories/users.py`: `UserRepository` with
+- [x] **6.4** Write `squawk/repositories/users.py`: `UserRepository` with
       `register(chat_id, username) -> bool`, `unregister(chat_id) -> bool`,
       `get_active() -> list[int]`. Owns: `users`
 - [ ] **6.5** Write `squawk/queries/digest.py`: `DigestQuery` with
