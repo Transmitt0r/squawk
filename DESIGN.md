@@ -1087,7 +1087,7 @@ for all application queries — no ORM or query builder.
 
 ### Phase 6 — Repositories
 
-- [ ] **6.1** Write `squawk/repositories/sightings.py`: `SightingRepository` with
+- [x] **6.1** Write `squawk/repositories/sightings.py`: `SightingRepository` with
       `record_poll(states, session_timeout) -> list[NewSighting]`,
       `close_open_sightings()`. Owns: `aircraft`, `sightings`, `position_updates`
 - [ ] **6.2** Write `squawk/repositories/enrichment.py`: `EnrichmentRepository`
