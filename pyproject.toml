@@ -43,10 +43,14 @@ select = ["E", "F", "I", "TID"]
 [tool.ruff.lint.isort]
 known-first-party = ["squawk", "tar1090", "eventbus"]
 
+[tool.ruff.lint.per-file-ignores]
+# squawk/ files are allowed to import from squawk and from libs — TID251
+# is only meant to block libs→squawk, not intra-squawk or squawk→libs.
+"squawk/**" = ["TID251"]
+
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 # libs/ packages must not import from squawk — enforced by TID251.
-# squawk/ uses relative imports internally, so this rule does not
-# trigger for legitimate intra-squawk imports.
+# The per-file-ignores above limits this rule to libs/ only.
 "squawk" = {msg = "libs packages (tar1090, eventbus) must not import from squawk"}
 
 [tool.mypy]

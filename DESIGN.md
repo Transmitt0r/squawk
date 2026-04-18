@@ -84,11 +84,10 @@ squawk/
   events.py                  ← domain event dataclasses
   scheduler.py               ← Scheduler protocol + APSchedulerBackend
 
-  clients/                   ← typed HTTP clients + AI clients, each behind a Protocol
+  clients/                   ← typed HTTP clients, each behind a Protocol
     adsbdb.py                ← AircraftInfo, AircraftLookupClient, AdsbbClient
     planespotters.py         ← PhotoInfo, PhotoClient, PlanespottersClient
     routes.py                ← RouteInfo, RouteClient, RoutesClient
-    gemini.py                ← ScoreResult, DigestOutput, ScoringClient, DigestClient, GeminiClient
 
   repositories/              ← write repositories, one per table-owner
     sightings.py             ← SightingRepository (aircraft, sightings, position_updates)
@@ -101,8 +100,8 @@ squawk/
 
   actors/
     polling.py               ← PollingActor
-    enrichment.py            ← EnrichmentActor
-    digest.py                ← DigestActor
+    enrichment.py            ← EnrichmentActor, ScoreResult, ScoringClient protocol, ADK implementation
+    digest.py                ← DigestActor, DigestOutput, DigestClient protocol, ADK implementation
 
   bot/
     app.py                   ← TelegramBot: PTB wiring, command registration, run()
@@ -325,16 +324,20 @@ separate per-hex lookup when constructing `EnrichmentExpired` events.
 
 ## External Service Clients
 
-All external HTTP and AI calls go through typed clients. No `requests.get()`,
-`aiohttp.ClientSession.get()`, or direct SDK calls anywhere outside `squawk/clients/`.
+All external HTTP calls go through typed clients in `squawk/clients/`. No
+`requests.get()` or direct `aiohttp.ClientSession.get()` calls anywhere outside
+that package. AI calls (Gemini via google-adk) are an implementation detail of
+the actors that use them — not clients.
 
-**Retry policy (applies to all clients):**
+**Retry policy (applies to all HTTP clients):**
 - `404` → return `None` (not an error)
 - `429` → exponential backoff, up to `max_retries` (configurable, default 3)
 - `5xx` → retry up to `max_retries` with backoff
 - Other errors → raise immediately
 
-**Protocols and data classes** are defined inline in each client module. Each module's protocol is its public interface; the concrete class is the implementation detail. `GeminiClient` implements both `ScoringClient` and `DigestClient` — both protocols live in `gemini.py`.
+**Protocols and data classes** are defined inline in each client module. Each
+module's protocol is its public interface; the concrete class is the
+implementation detail.
 
 ```python
 # squawk/clients/adsbdb.py
@@ -374,39 +377,7 @@ class PhotoInfo:
 
 class PhotoClient(Protocol):
     async def lookup(self, hex: str) -> PhotoInfo | None: ...
-
-# squawk/clients/gemini.py
-# Pydantic BaseModel (not dataclass) — passed directly to response_schema= for
-# constrained generation; same mechanism as ADK's output_schema=.
-
-class ScoreResult(BaseModel):
-    score: int           # 1–10
-    tags: list[str]
-    annotation: str      # one German sentence; empty string if unremarkable
-
-class DigestOutput(BaseModel):
-    text: str
-    photo_url: str | None = None
-    photo_caption: str | None = None
-
-class ScoringClient(Protocol):
-    async def score_batch(
-        self,
-        aircraft: list[tuple[str, AircraftInfo | None, RouteInfo | None]],
-        # each tuple: (hex, aircraft_info, route_info)
-    ) -> list[ScoreResult]: ...
-
-class DigestClient(Protocol):
-    async def generate(
-        self,
-        candidates: list[dict],
-        stats: dict,
-        photos: dict[str, PhotoInfo],
-    ) -> DigestOutput: ...
 ```
-
-`GeminiClient` implements both `ScoringClient` and `DigestClient`. A fake
-implementation of each protocol is used in actor unit tests.
 
 ---
 
@@ -414,6 +385,7 @@ implementation of each protocol is used in actor unit tests.
 
 ```python
 # squawk/bot/broadcaster.py
+# DigestOutput is imported from squawk.actors.digest
 
 class Broadcaster(Protocol):
     async def broadcast(self, digest: DigestOutput) -> None:
@@ -538,7 +510,26 @@ reappearances. `PollingActor` emits `HexFirstSeen` for each and can populate the
 
 ### EnrichmentActor
 
+`ScoreResult` is a frozen dataclass — not a Pydantic model. The ADK-based
+implementation handles the schema translation internally. The `ScoringClient`
+protocol is defined alongside `EnrichmentActor` in `squawk/actors/enrichment.py`;
+its concrete ADK implementation lives in the same module as a private class.
+
 ```python
+# squawk/actors/enrichment.py
+
+@dataclass(frozen=True)
+class ScoreResult:
+    score: int           # 1–10
+    tags: list[str]
+    annotation: str      # one German sentence; empty string if unremarkable
+
+class ScoringClient(Protocol):
+    async def score_batch(
+        self,
+        aircraft: list[tuple[str, AircraftInfo | None, RouteInfo | None]],
+    ) -> list[ScoreResult]: ...
+
 class EnrichmentActor:
     def __init__(
         self,
@@ -591,22 +582,45 @@ class EnrichmentActor:
         """
 ```
 
-One Gemini call per batch. **Validation required** (see Phase 1 checklist): confirm
-Gemini reliably returns a valid JSON array with one entry per input aircraft before
-committing to this design. Include a fallback: if the array length doesn't match
-input length, fall back to per-aircraft calls for that batch.
+One Gemini call per batch via google-adk. The concrete `_GeminiScoringClient`
+implementation lives in `squawk/actors/enrichment.py` alongside the protocol.
+It uses an ADK `LlmAgent` with a Pydantic wrapper schema for constrained generation;
+the wrapper is private to the implementation and not part of the public API.
 
-**Structured output enforcement:** `GeminiClient.score_batch()` must use the Gemini
-API's constrained generation: `response_mime_type="application/json"` and
-`response_schema=list[ScoreResult]`. This makes the array-length fallback a defence
-against edge cases rather than the primary reliability mechanism — the API enforces
-the schema at generation time. Phase 1.1 must validate this approach (not just the
-prompt) and document any schema constraints imposed by the API (e.g. field name
-restrictions, no nested generics).
+**Structured output:** the ADK implementation uses `output_schema` on `LlmAgent`
+with a Pydantic wrapper model (`class _ScoreBatch(BaseModel): results: list[_ScoreResult]`
+where `_ScoreResult` is a Pydantic mirror of the public `ScoreResult` dataclass).
+Results are converted to frozen `ScoreResult` dataclasses before returning.
+Phase 1.1 validated this approach — see findings there.
+
+**Fallback:** if `len(results) != len(input)`, log warning and fall back to
+per-aircraft calls. Per-aircraft failures return
+`ScoreResult(score=1, tags=[], annotation="")` so the batch is not blocked.
 
 ### DigestActor
 
+`DigestOutput` is a frozen dataclass defined in `squawk/actors/digest.py`. It is
+shared with `squawk/bot/broadcaster.py` (which imports it from there). The
+`DigestClient` protocol and its concrete ADK implementation (`_GeminiDigestClient`)
+live in the same module.
+
 ```python
+# squawk/actors/digest.py
+
+@dataclass(frozen=True)
+class DigestOutput:
+    text: str
+    photo_url: str | None
+    photo_caption: str | None
+
+class DigestClient(Protocol):
+    async def generate(
+        self,
+        candidates: list[dict],
+        stats: dict,
+        photos: dict[str, PhotoInfo],
+    ) -> DigestOutput: ...
+
 class DigestActor:
     def __init__(
         self,
@@ -670,11 +684,14 @@ async def main() -> None:
     digest_query = DigestQuery(pool)
 
     async with aiohttp.ClientSession() as http:
-        # External clients
+        # External HTTP clients
         aircraft_client = AdsbbClient(http, config.adsbdb_url)
         route_client    = RoutesClient(http, config.routes_url)
         photo_client    = PlanespottersClient(http, config.planespotters_url)
-        gemini          = GeminiClient(config.gemini_api_key)
+
+        # AI clients (ADK-backed, defined alongside their actors)
+        scoring_client = _GeminiScoringClient(config.gemini_api_key)
+        digest_client  = _GeminiDigestClient(config.gemini_api_key)
 
         # PTB Application — built once, shared between TelegramBot and
         # TelegramBroadcaster to avoid two Bot instances on the same token.
@@ -698,7 +715,7 @@ async def main() -> None:
             enrichment=enrichment_repo,
             aircraft_client=aircraft_client,
             route_client=route_client,
-            scoring_client=gemini,
+            scoring_client=scoring_client,
             enrichment_ttl=config.enrichment_ttl,
             batch_size=config.enrichment_batch_size,
             flush_interval=config.enrichment_flush_interval,
@@ -707,7 +724,7 @@ async def main() -> None:
             query=digest_query,
             digest_repo=digest_repo,
             photo_client=photo_client,
-            digest_client=gemini,
+            digest_client=digest_client,
             broadcaster=broadcaster,
         )
 
@@ -1062,11 +1079,10 @@ for all application queries — no ORM or query builder.
 
 ### Phase 5 — External Clients
 
-- [ ] **5.1** Implement `squawk/clients/adsbdb.py`: `AircraftInfo`, `AircraftLookupClient` protocol, `AdsbbClient` with retry policy
-- [ ] **5.2** Implement `squawk/clients/routes.py`: `RouteInfo`, `RouteClient` protocol, `RoutesClient` with retry policy
-- [ ] **5.3** Implement `squawk/clients/planespotters.py`: `PhotoInfo`, `PhotoClient` protocol, `PlanespottersClient` with retry policy
-- [ ] **5.4** Implement `squawk/clients/gemini.py`: `ScoreResult`, `DigestOutput`, `ScoringClient` and `DigestClient` protocols, `GeminiClient` implementing both; use batch scoring prompt validated in task 1.1
-- [ ] **5.5** Write client tests with mocked `aiohttp` responses: 200, 404 (→ None),
+- [x] **5.1** Implement `squawk/clients/adsbdb.py`: `AircraftInfo`, `AircraftLookupClient` protocol, `AdsbbClient` with retry policy
+- [x] **5.2** Implement `squawk/clients/routes.py`: `RouteInfo`, `RouteClient` protocol, `RoutesClient` with retry policy
+- [x] **5.3** Implement `squawk/clients/planespotters.py`: `PhotoInfo`, `PhotoClient` protocol, `PlanespottersClient` with retry policy
+- [x] **5.4** Write client tests with mocked `aiohttp` responses: 200, 404 (→ None),
       429 (→ retry), 500 (→ retry), exhausted retries (→ raise)
 
 ### Phase 6 — Repositories
@@ -1100,10 +1116,13 @@ for all application queries — no ORM or query builder.
       validated in task 1.2
 - [ ] **7.5** Write `squawk/actors/polling.py`: `PollingActor` as documented;
       crash recovery via `close_open_sightings()` on startup and shutdown
-- [ ] **7.6** Write `squawk/actors/enrichment.py`: `EnrichmentActor` with inbox,
-      batch collect loop, idempotent upsert via `EnrichmentRepository.store()`
-- [ ] **7.7** Write `squawk/actors/digest.py`: `DigestActor` with inbox, `force`
-      bypass of cache check
+- [ ] **7.6** Write `squawk/actors/enrichment.py`: `ScoreResult` dataclass,
+      `ScoringClient` protocol, `_GeminiScoringClient` (ADK-backed, private),
+      `EnrichmentActor` with inbox, batch collect loop, idempotent upsert via
+      `EnrichmentRepository.store()`
+- [ ] **7.7** Write `squawk/actors/digest.py`: `DigestOutput` dataclass,
+      `DigestClient` protocol, `_GeminiDigestClient` (ADK-backed, private),
+      `DigestActor` with inbox, `force` bypass of cache check
 - [ ] **7.8** Write actor tests with fake bus, fake repositories, fake clients
 
 ### Phase 8 — Wiring & Deployment
@@ -1134,8 +1153,10 @@ should be rejected.
 1. **No actor imports another actor's write repository.** Cross-actor data flow
    goes through the event bus only. Read-only cross-boundary access is permitted
    when explicitly injected and named.
-2. **No raw HTTP or AI SDK calls outside `squawk/clients/`.** All external
-   communication goes through typed clients implementing a Protocol.
+2. **No raw HTTP calls outside `squawk/clients/`.** All external HTTP communication
+   goes through typed clients implementing a Protocol. AI calls (google-adk) are
+   the sole exception: they live in the actor modules that use them, behind a slim
+   Protocol for testability.
 3. **No APScheduler imports outside `squawk/scheduler.py`.**
 4. **No database writes outside the owning repository.** See table ownership
    table above.
