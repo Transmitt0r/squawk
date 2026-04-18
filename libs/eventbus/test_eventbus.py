@@ -146,8 +146,9 @@ async def test_bus_emit_delivers_to_subscribed_actor(bus: EventBus) -> None:
     await bus.emit(event)
 
     assert actor.inbox.qsize() == 1
-    received = actor.inbox.get_nowait()
+    log_entry, received = actor.inbox.get_nowait()
     assert received == event
+    assert log_entry.type == "ThingHappened"
 
 
 async def test_bus_emit_delivers_to_multiple_actors(bus: EventBus) -> None:
@@ -160,6 +161,9 @@ async def test_bus_emit_delivers_to_multiple_actors(bus: EventBus) -> None:
 
     assert actor1.inbox.qsize() == 1
     assert actor2.inbox.qsize() == 1
+    _entry1, event1 = actor1.inbox.get_nowait()
+    _entry2, event2 = actor2.inbox.get_nowait()
+    assert event1 == event2
 
 
 async def test_bus_emit_does_not_deliver_to_unsubscribed_actor(bus: EventBus) -> None:
@@ -214,7 +218,7 @@ async def test_bus_replay_delivers_unprocessed_events(
     await bus.replay_unprocessed(since=timedelta(hours=1))
 
     assert actor.inbox.qsize() == 1
-    event = actor.inbox.get_nowait()
+    _entry, event = actor.inbox.get_nowait()
     assert isinstance(event, ThingHappened)
     assert event.name == "replayed"
     assert event.value == 5

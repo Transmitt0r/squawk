@@ -83,6 +83,9 @@ class EventBus:
         Step 1 (DB write) must complete before step 2 (inbox delivery). If the
         DB write raises, inbox delivery is skipped — an event that never reached
         event_log cannot be replayed on crash.
+
+        Actors receive (LogEntry, event) tuples so they can call
+        mark_processed() after handling each event.
         """
         event_type = type(event).__name__
         payload = dataclasses.asdict(event)
@@ -94,13 +97,21 @@ class EventBus:
         self._deliver(entry, event)
 
     def _deliver(self, entry: LogEntry, event: Any) -> None:
-        """Put event into each subscribed actor's inbox (non-blocking)."""
+        """Put (LogEntry, event) into each subscribed actor's inbox (non-blocking)."""
         event_type = type(event).__name__
         if event_type not in self._subscriptions:
             return
         _cls, actors = self._subscriptions[event_type]
         for actor in actors:
-            actor.inbox.put_nowait(event)
+            actor.inbox.put_nowait((entry, event))
+
+    async def mark_processed(self, log_id: int, emitted_at: datetime) -> None:
+        """Mark an event as processed in the event log.
+
+        Actors call this after successfully handling an event. Both log_id and
+        emitted_at are required to hit the composite primary key on the hypertable.
+        """
+        await self._log.mark_processed(log_id, emitted_at)
 
     async def replay_unprocessed(self, since: timedelta = timedelta(hours=24)) -> None:
         """On startup: fetch unprocessed events and deliver to actor inboxes.
@@ -124,4 +135,4 @@ class EventBus:
                 )
                 continue
             for actor in actors:
-                actor.inbox.put_nowait(event)
+                actor.inbox.put_nowait((entry, event))
