@@ -20,6 +20,7 @@ class Config:
     bot_token: str
     gemini_api_key: str
     admin_chat_id: int
+    channel_id: int
 
     # Optional with defaults
     poll_interval: float = 5.0
@@ -41,6 +42,7 @@ class Config:
             bot_token=env["BOT_TOKEN"],
             gemini_api_key=env["GEMINI_API_KEY"],
             admin_chat_id=int(env["ADMIN_CHAT_ID"]),
+            channel_id=int(env["CHANNEL_ID"]),
             poll_interval=float(env.get("POLL_INTERVAL", "5")),
             session_timeout=float(env.get("SESSION_TIMEOUT", "300")),
             digest_schedule=env.get("DIGEST_SCHEDULE", "0 8 * * 0"),

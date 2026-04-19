@@ -10,7 +10,7 @@ import aiohttp
 from telegram.ext import Application
 
 from squawk.bot.app import TelegramBot
-from squawk.bot.broadcaster import TelegramBroadcaster
+from squawk.bot.broadcaster import DmBroadcaster, TelegramBroadcaster
 from squawk.clients.adsbdb import AdsbbClient
 from squawk.clients.planespotters import PlanespottersClient
 from squawk.clients.routes import RoutesClient
@@ -24,7 +24,6 @@ from squawk.queries.digest import DigestQuery
 from squawk.repositories.digest import DigestRepository
 from squawk.repositories.enrichment import EnrichmentRepository
 from squawk.repositories.sightings import SightingRepository
-from squawk.repositories.users import UserRepository
 from squawk.scheduler import APSchedulerBackend
 
 logging.basicConfig(
@@ -42,7 +41,6 @@ async def main() -> None:
     sightings_repo = SightingRepository(pool)
     enrichment_repo = EnrichmentRepository(pool)
     digest_repo = DigestRepository(pool)
-    user_repo = UserRepository(pool)
 
     # Read queries
     digest_query = DigestQuery(pool)
@@ -60,11 +58,14 @@ async def main() -> None:
 
         # Telegram
         ptb_app = Application.builder().token(config.bot_token).build()
-        broadcaster = TelegramBroadcaster(ptb_app, user_repo)
+        channel_broadcaster = TelegramBroadcaster(ptb_app, config.channel_id)
 
         # Digest helper — used by scheduler and /debug
         async def _do_digest(
-            period_start: datetime, period_end: datetime, force: bool = False
+            period_start: datetime,
+            period_end: datetime,
+            broadcaster: TelegramBroadcaster | DmBroadcaster,
+            force: bool = False,
         ) -> None:
             await generate_digest(
                 query=digest_query,
@@ -78,13 +79,20 @@ async def main() -> None:
                 force=force,
             )
 
-        async def _debug_digest() -> None:
+        async def _debug_digest(chat_id: int) -> None:
             now = datetime.now(tz=timezone.utc)
-            await _do_digest(now - timedelta(hours=24), now, force=True)
+            await _do_digest(
+                now - timedelta(hours=24),
+                now,
+                broadcaster=DmBroadcaster(ptb_app, chat_id),
+                force=True,
+            )
 
         async def _scheduled_digest() -> None:
             now = datetime.now(tz=timezone.utc)
-            await _do_digest(now - timedelta(days=7), now)
+            await _do_digest(
+                now - timedelta(days=7), now, broadcaster=channel_broadcaster
+            )
 
         # Scheduler
         scheduler = APSchedulerBackend()
@@ -96,7 +104,6 @@ async def main() -> None:
         # Bot
         bot = TelegramBot(
             ptb_app,
-            user_repo,
             on_debug_digest=_debug_digest,
             admin_chat_id=config.admin_chat_id,
         )

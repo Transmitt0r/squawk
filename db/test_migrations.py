@@ -22,7 +22,6 @@ EXPECTED_TABLES = {
     "enriched_aircraft",
     "callsign_routes",
     "digests",
-    "users",
 }
 
 
@@ -73,7 +72,8 @@ async def test_migrate_up_and_down(db_url: str) -> None:
     finally:
         await conn.close()
 
-    # --- down (roll back both migrations) ---
+    # --- down (roll back all migrations) ---
+    dbmate(db_url, "down")
     dbmate(db_url, "down")
     dbmate(db_url, "down")
 
