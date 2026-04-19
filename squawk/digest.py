@@ -5,7 +5,6 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
-import os
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -131,8 +130,7 @@ class _GeminiDigestClient:
     converts the result to a frozen DigestOutput dataclass.
     """
 
-    def __init__(self, api_key: str, model: str = "gemini-3-flash-preview") -> None:
-        os.environ.setdefault("GOOGLE_API_KEY", api_key)
+    def __init__(self, model: str = "gemini-3-flash-preview") -> None:
         self._model = model
 
     async def generate(

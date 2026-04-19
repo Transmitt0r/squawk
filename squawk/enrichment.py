@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
@@ -118,9 +117,7 @@ class _GeminiScoringClient:
     if the returned array length mismatches the input.
     """
 
-    def __init__(self, api_key: str, model: str = "gemini-3-flash-preview") -> None:
-        os.environ.setdefault("GOOGLE_API_KEY", api_key)
-        self._api_key = api_key
+    def __init__(self, model: str = "gemini-3-flash-preview") -> None:
         self._model = model
 
     async def score_batch(

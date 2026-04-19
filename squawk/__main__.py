@@ -56,8 +56,8 @@ async def main() -> None:
         photo_client = PlanespottersClient(http, config.planespotters_url)
 
         # AI clients
-        scoring_client = _GeminiScoringClient(config.gemini_api_key)
-        digest_client = _GeminiDigestClient(config.gemini_api_key)
+        scoring_client = _GeminiScoringClient()
+        digest_client = _GeminiDigestClient()
 
         # Telegram
         ptb_app = Application.builder().token(config.bot_token).build()
