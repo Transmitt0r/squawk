@@ -93,9 +93,16 @@ Erkläre bei jedem Highlight, was das
 Flugzeug ist und warum seine Sichtung hier ungewöhnlich oder erwähnenswert ist.
 
 <b>🌍 Der Überblick</b>
-1-2 Absätze über den normalen Verkehr zusammengefasst — KEINE Einzelauflistung.
-Beispiel: "Ryanair war wieder fleißigster Gast mit X Flügen, hauptsächlich Richtung
-Mittelmeer."
+2-3 Absätze die Muster und Zusammenhänge aus ALLEN Kandidaten ziehen.
+Verwende die available fields: type, operator, flag, origin/dest, altitude,
+story_tags. Beispiele für Muster:
+- Welche Flughäfen/Regionen waren am häufigsten als Ziel?
+- Welche Airlines dominierten den Verkehr?
+- Gab es auffällige Höhen-Cluster (viel Tiefflug? unusually high)?
+- Welche Länder (flag) waren vertreten — etwas Überraschendes dabei?
+- Wie verteilen sich story_tags (medical, cargo, bizjet, military)?
+Zahlen und konkrete Beispiele nennen, nicht vage bleiben.
+KEINE Einzelauflistung von Flügen — zusammenfassen und verbinden.
 
 <b>🆕 Neue Gesichter</b>
 2-3 der interessantesten Erstbesucher. Falls keine interessanten dabei, ein kurzer Satz.
