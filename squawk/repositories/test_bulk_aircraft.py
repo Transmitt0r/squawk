@@ -45,17 +45,27 @@ def repo(pool: asyncpg.Pool) -> BulkAircraftRepository:
     return BulkAircraftRepository(pool)
 
 
+async def _ingest(
+    repo: BulkAircraftRepository,
+    records: list[tuple[str, str | None, str | None, str | None]],
+) -> None:
+    """Helper: full ingest cycle into the live table via staging."""
+    await repo.prepare_ingest()
+    await repo.insert_batch_staging(records)
+    await repo.commit_ingest()
+
+
 async def test_lookup_returns_none_when_empty(repo: BulkAircraftRepository) -> None:
     result = await repo.lookup("aabbcc")
     assert result is None
 
 
-async def test_insert_batch_and_lookup(repo: BulkAircraftRepository) -> None:
+async def test_ingest_and_lookup(repo: BulkAircraftRepository) -> None:
     records: list[tuple[str, str | None, str | None, str | None]] = [
         ("4d216e", "9H-EUC", "A320", "Airbus A320neo"),
         ("406a72", "G-EZWD", "A320", "Airbus A320"),
     ]
-    await repo.insert_batch(records)
+    await _ingest(repo, records)
 
     result = await repo.lookup("4d216e")
     assert result is not None
@@ -69,7 +79,7 @@ async def test_insert_batch_and_lookup(repo: BulkAircraftRepository) -> None:
 
 
 async def test_lookup_is_case_insensitive(repo: BulkAircraftRepository) -> None:
-    await repo.insert_batch([("aabbcc", "D-AIWE", "A320", "Airbus A320neo")])
+    await _ingest(repo, [("aabbcc", "D-AIWE", "A320", "Airbus A320neo")])
 
     assert await repo.lookup("AABBCC") is not None
     assert await repo.lookup("aabbcc") is not None
@@ -79,34 +89,37 @@ async def test_lookup_is_case_insensitive(repo: BulkAircraftRepository) -> None:
 async def test_lookup_returns_none_for_all_null_fields(
     repo: BulkAircraftRepository,
 ) -> None:
-    await repo.insert_batch([("ffffff", None, None, None)])
+    await _ingest(repo, [("ffffff", None, None, None)])
     result = await repo.lookup("ffffff")
     assert result is None
 
 
-async def test_insert_batch_on_conflict_does_nothing(
+async def test_commit_ingest_replaces_previous_data(
     repo: BulkAircraftRepository,
 ) -> None:
-    await repo.insert_batch([("aabbcc", "D-AIWE", "A320", "Airbus A320")])
-    # Inserting again with different data — ON CONFLICT DO NOTHING, original kept
-    await repo.insert_batch([("aabbcc", "CHANGED", "B738", "Boeing 737")])
-    result = await repo.lookup("aabbcc")
-    assert result is not None
-    assert result.registration == "D-AIWE"
+    """A second ingest replaces all previous data."""
+    await _ingest(repo, [("aabbcc", "D-AIWE", "A320", "Airbus A320")])
+    await _ingest(repo, [("112233", "G-EZWD", "A320", "Airbus A320")])
+
+    assert await repo.lookup("aabbcc") is None  # previous entry gone
+    assert await repo.lookup("112233") is not None  # new entry present
 
 
-async def test_truncate_clears_all_records(repo: BulkAircraftRepository) -> None:
-    await repo.insert_batch([("aabbcc", "D-AIWE", "A320", "Airbus A320neo")])
-    await repo.truncate()
-    result = await repo.lookup("aabbcc")
-    assert result is None
-
-
-async def test_insert_batch_prefers_model_over_icao_type_for_type_field(
+async def test_prepare_ingest_does_not_clear_live_table(
     repo: BulkAircraftRepository,
 ) -> None:
-    # When model (human-readable) is present, it should be used as .type
-    await repo.insert_batch([("aabbcc", "D-AIWE", "A20N", "Airbus A320neo")])
+    """prepare_ingest() must not touch the live table — live reads stay intact."""
+    await _ingest(repo, [("aabbcc", "D-AIWE", "A320", "Airbus A320")])
+
+    await repo.prepare_ingest()  # starts a new ingest cycle but does NOT swap yet
+    result = await repo.lookup("aabbcc")
+    assert result is not None  # old data still visible
+
+
+async def test_insert_batch_prefers_model_over_icao_type(
+    repo: BulkAircraftRepository,
+) -> None:
+    await _ingest(repo, [("aabbcc", "D-AIWE", "A20N", "Airbus A320neo")])
     result = await repo.lookup("aabbcc")
     assert result is not None
     assert result.type == "Airbus A320neo"
@@ -116,7 +129,7 @@ async def test_insert_batch_prefers_model_over_icao_type_for_type_field(
 async def test_insert_batch_falls_back_to_icao_type_when_no_model(
     repo: BulkAircraftRepository,
 ) -> None:
-    await repo.insert_batch([("aabbcc", "D-AIWE", "A20N", None)])
+    await _ingest(repo, [("aabbcc", "D-AIWE", "A20N", None)])
     result = await repo.lookup("aabbcc")
     assert result is not None
     assert result.type == "A20N"

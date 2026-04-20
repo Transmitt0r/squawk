@@ -3,6 +3,12 @@
 Written exclusively by the mictronics downloader (daily refresh).
 Read by enrich_batch() as a fast local lookup.
 
+Ingest is zero-downtime via a staging table:
+    1. prepare_ingest()     — create staging table if needed, truncate it
+    2. insert_batch_staging() — stream records into staging (no lock on live table)
+    3. commit_ingest()      — atomic swap: truncate live, bulk-copy from staging
+                              lock is held only for the INSERT … SELECT (~seconds)
+
 Public API:
     BulkAircraftLookup  — Protocol for read-only lookup (used by pipeline/enrichment)
     BulkAircraftRepository — concrete implementation (also handles writes)
@@ -55,22 +61,54 @@ class BulkAircraftRepository:
             icao_type=icao_type,
         )
 
-    async def truncate(self) -> None:
-        """Truncate bulk_aircraft before a fresh ingest."""
-        async with self._pool.acquire() as conn:
-            await conn.execute("TRUNCATE TABLE bulk_aircraft")
+    async def prepare_ingest(self) -> None:
+        """Create the staging table if it doesn't exist, then truncate it.
 
-    async def insert_batch(
+        Safe to call even while lookups are running — touches only the staging
+        table, not the live bulk_aircraft table.
+        """
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS bulk_aircraft_staging
+                    (LIKE bulk_aircraft INCLUDING ALL)
+                """
+            )
+            await conn.execute("TRUNCATE TABLE bulk_aircraft_staging")
+
+    async def insert_batch_staging(
         self,
         records: list[tuple[str, str | None, str | None, str | None]],
     ) -> None:
-        """Bulk-insert (hex, registration, icao_type, model) tuples."""
+        """Bulk-insert (hex, registration, icao_type, model) tuples into staging.
+
+        Does not touch the live bulk_aircraft table — no impact on readers.
+        """
         async with self._pool.acquire() as conn:
             await conn.executemany(
                 """
-                INSERT INTO bulk_aircraft (hex, registration, icao_type, model)
+                INSERT INTO bulk_aircraft_staging (hex, registration, icao_type, model)
                 VALUES ($1, $2, $3, $4)
                 ON CONFLICT (hex) DO NOTHING
                 """,
                 records,
             )
+
+    async def commit_ingest(self) -> None:
+        """Atomically swap staging data into the live table.
+
+        Acquires ACCESS EXCLUSIVE on bulk_aircraft only for the duration of the
+        INSERT … SELECT from the already-populated staging table — typically
+        a few seconds. Readers arriving during that window will block briefly
+        then see the new data; readers already running continue unaffected.
+        """
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute("TRUNCATE TABLE bulk_aircraft")
+                await conn.execute(
+                    """
+                    INSERT INTO bulk_aircraft (hex, registration, icao_type, model)
+                    SELECT hex, registration, icao_type, model
+                    FROM bulk_aircraft_staging
+                    """
+                )

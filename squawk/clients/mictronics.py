@@ -51,9 +51,10 @@ async def download_and_ingest(
     records: list[tuple[str, str | None, str | None, str | None]] = []
     total = 0
 
+    await repo.prepare_ingest()
+
     with zipfile.ZipFile(io.BytesIO(content)) as zf:
         names = [n for n in zf.namelist() if n.endswith(".json")]
-        await repo.truncate()
         for name in names:
             prefix = name[: -len(".json")].upper()
             try:
@@ -75,13 +76,15 @@ async def download_and_ingest(
                 model = entry.get("desc") or None
                 records.append((full_hex, reg, icao_type, model))
                 if len(records) >= _BATCH_SIZE:
-                    await repo.insert_batch(records)
+                    await repo.insert_batch_staging(records)
                     total += len(records)
                     records.clear()
 
     if records:
-        await repo.insert_batch(records)
+        await repo.insert_batch_staging(records)
         total += len(records)
+
+    await repo.commit_ingest()
 
     logger.info("mictronics: ingested %d records", total)
     return total
