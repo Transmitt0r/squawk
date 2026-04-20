@@ -8,6 +8,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
+from enum import StrEnum
 from typing import Protocol
 
 from google.adk.agents import LlmAgent
@@ -25,7 +26,71 @@ logger = logging.getLogger(__name__)
 
 _APP_NAME = "adsb_enrichment"
 
-_SCORING_SYSTEM_PROMPT = """
+
+class StoryTag(StrEnum):
+    BIZJET = "bizjet"
+    CARGO = "cargo"
+    COMMERCIAL = "commercial"
+    EMERGENCY = "emergency"
+    GLIDER = "glider"
+    GOVERNMENT = "government"
+    HELICOPTER = "helicopter"
+    HISTORIC = "historic"
+    LONG_HAUL = "long-haul"
+    LOW_COST = "low-cost"
+    MEDICAL = "medical"
+    MILITARY = "military"
+    POLICE = "police"
+    REGIONAL = "regional"
+    RESEARCH = "research"
+    SPECIAL_MISSION = "special-mission"
+    TURBOPROP = "turboprop"
+    UNUSUAL_OPERATOR = "unusual-operator"
+    VIP = "vip"
+    WIDEBODY = "widebody"
+
+
+_TAG_DESCRIPTIONS: dict[StoryTag, str] = {
+    StoryTag.BIZJET: "business jets and private jets",
+    StoryTag.CARGO: "freight and cargo aircraft",
+    StoryTag.COMMERCIAL: "routine airline traffic",
+    StoryTag.EMERGENCY: "squawk 7700, 7600, or 7500",
+    StoryTag.GLIDER: "sailplanes and motor gliders",
+    StoryTag.GOVERNMENT: "state or government flights (e.g. Flugbereitschaft)",
+    StoryTag.HELICOPTER: "rotary-wing aircraft",
+    StoryTag.HISTORIC: "vintage or classic aircraft",
+    StoryTag.LONG_HAUL: "intercontinental routes",
+    StoryTag.LOW_COST: "budget airlines (Ryanair, Wizz, etc.)",
+    StoryTag.MEDICAL: "air ambulance, medevac, hospital transport, organ flights",
+    StoryTag.MILITARY: "any military aircraft",
+    StoryTag.POLICE: "law enforcement, border control, customs aviation",
+    StoryTag.REGIONAL: "regional jets and regional airliners",
+    StoryTag.RESEARCH: "scientific or test aircraft (DLR, NLR, flight test)",
+    StoryTag.SPECIAL_MISSION: "ELINT, AEW&C, surveillance, calibration",
+    StoryTag.TURBOPROP: "turboprop aircraft",
+    StoryTag.UNUSUAL_OPERATOR: "rare or exotic operator for central Europe",
+    StoryTag.VIP: "VIP transport (heads of state, royal flights)",
+    StoryTag.WIDEBODY: "wide-body aircraft (A380, 777, A350, etc.)",
+}
+
+_VALID_TAGS = set(StoryTag)
+
+
+def _sanitize_tags(tags: list[str]) -> list[str]:
+    """Strip tags not in the canonical StoryTag enum."""
+    return [t for t in tags if t in _VALID_TAGS]
+
+
+def _build_tag_list() -> str:
+    lines = []
+    for tag in StoryTag:
+        desc = _TAG_DESCRIPTIONS[tag]
+        lines.append(f'  "{tag.value}" — {desc}')
+    return "\n".join(lines)
+
+
+_SCORING_SYSTEM_PROMPT = (
+    """
 You rate aircraft for a daily ADS-B digest near Stuttgart, Germany.
 For each aircraft in the list, return a score (1–10):
 
@@ -67,15 +132,15 @@ Input fields per aircraft:
 
 Output fields:
 - tags: use ONLY tags from this fixed list — do not invent others:
-  "commercial", "low-cost", "cargo", "bizjet", "military", "medical",
-  "police", "helicopter", "glider", "long-haul", "unusual-operator",
-  "emergency", "historic", "vip"
-  Apply all that fit. "medical" = air ambulance / hospital transport / organ
-  flight. "police" = law enforcement, border control, customs aviation.
+"""
+    + _build_tag_list()
+    + """
+  Apply all that fit.
 - annotation: one English sentence explaining why interesting; "" if score ≤ 3
 
 Return a JSON object with "results" — an array in the same order as the input.
-""".strip()
+"""
+).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +321,7 @@ class _GeminiScoringClient:
                     return [
                         ScoreResult(
                             score=r.score,
-                            tags=list(r.tags),
+                            tags=_sanitize_tags(list(r.tags)),
                             annotation=r.annotation,
                         )
                         for r in batch.results

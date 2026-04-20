@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Protocol
 
-from telegram import Bot
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.error import TelegramError
 from telegram.ext import Application
@@ -35,6 +35,7 @@ async def _send_digest(
     chat_id: int,
     digest: DigestOutput,
     chart_png: bytes | None = None,
+    radar_url: str | None = None,
 ) -> None:
     await bot.send_message(
         chat_id=chat_id,
@@ -49,10 +50,16 @@ async def _send_digest(
             caption=caption[:_CAPTION_LIMIT] if caption else None,
         )
     if chart_png:
+        reply_markup = None
+        if radar_url:
+            reply_markup = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("📍 Live Radar", url=radar_url)]]
+            )
         await bot.send_photo(
             chat_id=chat_id,
             photo=chart_png,
             caption="📈 Flugverkehr des Tages",
+            reply_markup=reply_markup,
         )
 
 
@@ -63,16 +70,24 @@ class TelegramBroadcaster:
     two Bot instances on the same token.
     """
 
-    def __init__(self, app: Application, channel_id: int) -> None:
+    def __init__(
+        self,
+        app: Application,
+        channel_id: int,
+        radar_url: str | None = None,
+    ) -> None:
         self._bot = app.bot
         self._channel_id = channel_id
+        self._radar_url = radar_url
 
     async def broadcast(
         self, digest: DigestOutput, chart_png: bytes | None = None
     ) -> None:
         """Post digest once to the channel."""
         try:
-            await _send_digest(self._bot, self._channel_id, digest, chart_png)
+            await _send_digest(
+                self._bot, self._channel_id, digest, chart_png, self._radar_url
+            )
         except TelegramError as exc:
             logger.warning("broadcaster: failed to deliver to channel: %s", exc)
 

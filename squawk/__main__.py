@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import aiohttp
+from telegram.constants import ParseMode
 from telegram.ext import Application
 
 from squawk.bot.app import TelegramBot
@@ -66,7 +67,10 @@ async def main() -> None:
 
         # Telegram
         ptb_app = Application.builder().token(config.bot_token).build()
-        channel_broadcaster = TelegramBroadcaster(ptb_app, config.channel_id)
+        channel_broadcaster = TelegramBroadcaster(
+            ptb_app, config.channel_id, config.radar_url
+        )
+        dm_broadcaster_for_admin = DmBroadcaster(ptb_app, config.admin_chat_id)
 
         # Digest helper — used by scheduler and /debug
         async def _do_digest(
@@ -108,6 +112,52 @@ async def main() -> None:
             except Exception:
                 logger.exception("bulk_db: refresh failed")
 
+        async def _digest_request() -> None:
+            try:
+                cached = await digest_repo.get_latest()
+            except Exception:
+                logger.exception("/digest: failed to fetch cached digest")
+                return
+            if cached is None:
+                await ptb_app.bot.send_message(
+                    chat_id=config.admin_chat_id,
+                    text="Noch kein Digest vorhanden.",
+                )
+                return
+            await dm_broadcaster_for_admin.broadcast(cached)
+
+        async def _stats_request() -> None:
+            try:
+                stats = await digest_query.get_stats(1)
+            except Exception:
+                logger.exception("/stats: query failed")
+                return
+            lines = [
+                "<b>📊 Flugstatistiken (24h)</b>",
+                "",
+                f"✈️ Flüge gesichtet: {stats.total_sightings}",
+                f"🛬 Verschiedene Flugzeuge: {stats.unique_aircraft}",
+                f"🆕 Erstbesucher: {stats.new_aircraft}",
+            ]
+            if stats.peak_hour is not None:
+                lines.append(
+                    f"⏰ Spitzenstunde: {stats.peak_hour}:00 ({stats.peak_count} Flüge)"
+                )
+            if stats.medical_count:
+                lines.append(f"🏥 Sanitätsflüge: {stats.medical_count}")
+            if stats.police_count:
+                lines.append(f"🚔 Polizeiflüge: {stats.police_count}")
+            if stats.squawk_alerts:
+                lines.append("")
+                lines.append("<b>🚨 Notfall-Squawks:</b>")
+                for alert in stats.squawk_alerts:
+                    lines.append(f"  {alert.time_local} — {alert.hex}: {alert.meaning}")
+            await ptb_app.bot.send_message(
+                chat_id=config.admin_chat_id,
+                text="\n".join(lines),
+                parse_mode=ParseMode.HTML,
+            )
+
         # Scheduler
         scheduler = APSchedulerBackend()
         scheduler.add_cron_job(
@@ -121,6 +171,8 @@ async def main() -> None:
             ptb_app,
             on_debug_digest=_debug_digest,
             admin_chat_id=config.admin_chat_id,
+            on_digest_request=_digest_request,
+            on_stats_request=_stats_request,
         )
 
         # Download bulk aircraft DB on startup (non-fatal if it fails)

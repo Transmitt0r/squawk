@@ -29,13 +29,22 @@ class TelegramBot:
         app: Application,
         on_debug_digest: Callable[[int], Coroutine],
         admin_chat_id: int,
+        on_digest_request: Callable[[], Coroutine],
+        on_stats_request: Callable[[], Coroutine],
     ) -> None:
         self._app = app
         self._on_debug_digest = on_debug_digest
         self._admin_chat_id = admin_chat_id
+        self._on_digest_request = on_digest_request
+        self._on_stats_request = on_stats_request
 
     def _register_handlers(self) -> None:
-        handlers = make_handlers(self._on_debug_digest, self._admin_chat_id)
+        handlers = make_handlers(
+            self._on_debug_digest,
+            self._admin_chat_id,
+            self._on_digest_request,
+            self._on_stats_request,
+        )
         for command, handler in handlers.items():
             self._app.add_handler(CommandHandler(command, handler))
 

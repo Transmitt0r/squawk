@@ -54,6 +54,16 @@ class DigestRepository:
             return None
         return DigestOutput(text=row["content"], photo_url=None, photo_caption=None)
 
+    async def get_latest(self) -> DigestOutput | None:
+        """Return the most recently cached digest, or None if the table is empty."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT content FROM digests ORDER BY created_at DESC LIMIT 1"
+            )
+        if row is None:
+            return None
+        return DigestOutput(text=row["content"], photo_url=None, photo_caption=None)
+
     async def cache(
         self,
         reference_date: datetime.date,

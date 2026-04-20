@@ -22,6 +22,8 @@ class Config:
     admin_chat_id: int
     channel_id: int
 
+    radar_url: str = "https://radar.grotz.io/"
+
     # Optional with defaults
     poll_interval: float = 5.0
     session_timeout: float = 300.0
@@ -53,6 +55,7 @@ class Config:
             enrichment_flush_interval=float(env.get("ENRICHMENT_FLUSH_SECS", "30")),
             client_max_retries=int(env.get("CLIENT_MAX_RETRIES", "3")),
             adsbdb_url=env.get("ADSBDB_URL", "https://api.adsbdb.com/v0"),
+            radar_url=env.get("RADAR_URL", "https://radar.grotz.io/"),
             hexdb_url=env.get("HEXDB_URL", "https://hexdb.io/api/v1"),
             mictronics_url=env.get(
                 "MICTRONICS_URL",
