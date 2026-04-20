@@ -16,6 +16,8 @@ from datetime import datetime
 
 import asyncpg
 
+from squawk.tags import StoryTag
+
 _SQUAWK_MEANINGS: dict[str, str] = {
     "7700": "General emergency",
     "7600": "Radio communication failure",
@@ -38,7 +40,7 @@ class DigestCandidate:
     operator: str | None
     flag: str | None
     story_score: int | None
-    story_tags: list[str]
+    story_tags: list[StoryTag]
     annotation: str
     origin_iata: str | None
     origin_city: str | None
@@ -145,7 +147,7 @@ class DigestQuery:
                 operator=row["operator"],
                 flag=row["flag"],
                 story_score=row["story_score"],
-                story_tags=list(row["story_tags"]),
+                story_tags=[StoryTag(t) for t in row["story_tags"]],
                 annotation=row["annotation"],
                 origin_iata=row["origin_iata"],
                 origin_city=row["origin_city"],
@@ -218,16 +220,18 @@ class DigestQuery:
                 """
                 SELECT
                     COUNT(DISTINCT s.hex) FILTER (
-                        WHERE 'medical' = ANY(ea.story_tags)
+                        WHERE $2 = ANY(ea.story_tags)
                     ) AS medical_count,
                     COUNT(DISTINCT s.hex) FILTER (
-                        WHERE 'police' = ANY(ea.story_tags)
+                        WHERE $3 = ANY(ea.story_tags)
                     ) AS police_count
                 FROM sightings s
                 JOIN enriched_aircraft ea ON ea.hex = s.hex
                 WHERE s.started_at > now() - $1 * interval '1 day'
                 """,
                 days,
+                StoryTag.MEDICAL,
+                StoryTag.POLICE,
             )
 
         squawk_alerts = [

@@ -19,6 +19,7 @@ import asyncpg
 
 from squawk.clients.adsbdb import AircraftInfo
 from squawk.clients.routes import RouteInfo
+from squawk.tags import StoryTag
 
 
 class EnrichmentRepository:
@@ -35,7 +36,7 @@ class EnrichmentRepository:
         self,
         hex: str,
         score: int,
-        tags: list[str],
+        tags: list[StoryTag],
         annotation: str,
         aircraft_info: AircraftInfo | None,
         route_info: RouteInfo | None,

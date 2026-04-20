@@ -352,10 +352,10 @@ async def test_get_candidates_story_tags_returned_as_list(
 ) -> None:
     await _insert_aircraft(pool, "abc123")
     await _insert_sighting(pool, "abc123")
-    await _insert_enrichment(pool, "abc123", story_tags=["military", "fighter"])
+    await _insert_enrichment(pool, "abc123", story_tags=["military", "bizjet"])
 
     result = await query.get_candidates(days=7)
-    assert result[0].story_tags == ["military", "fighter"]
+    assert result[0].story_tags == ["military", "bizjet"]
 
 
 async def test_get_candidates_limited_to_100(

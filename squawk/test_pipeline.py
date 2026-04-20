@@ -25,6 +25,7 @@ from squawk.enrichment import AircraftSources, EnrichItem, ScoreResult
 from squawk.pipeline import run_pipeline
 from squawk.repositories.enrichment import EnrichmentRepository
 from squawk.repositories.sightings import SightingRepository
+from squawk.tags import StoryTag
 from tar1090 import AircraftState
 
 TIMESCALE_IMAGE = "timescale/timescaledb:latest-pg16"
@@ -108,9 +109,9 @@ class _MockRouteClient:
 
 
 class _MockScoringClient:
-    def __init__(self, score: int = 5, tags: list[str] | None = None) -> None:
+    def __init__(self, score: int = 5, tags: list[StoryTag] | None = None) -> None:
         self._score = score
-        self._tags = tags or ["test"]
+        self._tags = tags or [StoryTag.COMMERCIAL]
         self.calls: list[list] = []
 
     async def score_batch(
@@ -286,7 +287,7 @@ async def test_pipeline_ttl_expiry_triggers_re_enrichment(
     await enrichment_repo.store(
         hex="aaa111",
         score=3,
-        tags=["old"],
+        tags=[StoryTag.COMMERCIAL],
         annotation="Old annotation.",
         aircraft_info=None,
         route_info=None,
@@ -294,7 +295,7 @@ async def test_pipeline_ttl_expiry_triggers_re_enrichment(
         enrichment_ttl=timedelta(seconds=-1),
     )
 
-    scoring = _MockScoringClient(score=9, tags=["military"])
+    scoring = _MockScoringClient(score=9, tags=[StoryTag.MILITARY])
     states = [make_state(hex="aaa111", flight="FL111")]
 
     await _run_pipeline(

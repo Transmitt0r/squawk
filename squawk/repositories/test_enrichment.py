@@ -20,6 +20,7 @@ from testcontainers.postgres import PostgresContainer
 from squawk.clients.adsbdb import AircraftInfo
 from squawk.clients.routes import RouteInfo
 from squawk.repositories.enrichment import EnrichmentRepository
+from squawk.tags import StoryTag
 
 TIMESCALE_IMAGE = "timescale/timescaledb:latest-pg16"
 MIGRATIONS_DIR = "db/migrations"
@@ -116,7 +117,7 @@ async def test_store_inserts_enriched_aircraft(
     await repo.store(
         hex="abc123",
         score=7,
-        tags=["commercial", "widebody"],
+        tags=[StoryTag.COMMERCIAL, StoryTag.WIDEBODY],
         annotation="Interessantes Flugzeug.",
         aircraft_info=AIRCRAFT_INFO,
         route_info=ROUTE_INFO,
@@ -147,7 +148,7 @@ async def test_store_upserts_enriched_aircraft(
     await repo.store(
         hex="abc123",
         score=3,
-        tags=["old"],
+        tags=[StoryTag.COMMERCIAL],
         annotation="Alt.",
         aircraft_info=AIRCRAFT_INFO,
         route_info=None,
@@ -157,7 +158,7 @@ async def test_store_upserts_enriched_aircraft(
     await repo.store(
         hex="abc123",
         score=8,
-        tags=["updated"],
+        tags=[StoryTag.MILITARY],
         annotation="Neu.",
         aircraft_info=AIRCRAFT_INFO,
         route_info=None,
@@ -176,7 +177,7 @@ async def test_store_upserts_enriched_aircraft(
 
     assert count == 1
     assert row["story_score"] == 8
-    assert row["story_tags"] == ["updated"]
+    assert row["story_tags"] == ["military"]
     assert row["annotation"] == "Neu."
 
 
