@@ -66,8 +66,12 @@ Input fields per aircraft:
 - origin/dest fields: route information from a separate route database
 
 Output fields:
-- tags: short English keywords (e.g. "military", "cargo", "bizjet",
-  "emergency", "long-haul", "unusual-operator", "medical")
+- tags: use ONLY tags from this fixed list — do not invent others:
+  "commercial", "low-cost", "cargo", "bizjet", "military", "medical",
+  "police", "helicopter", "glider", "long-haul", "unusual-operator",
+  "emergency", "historic", "vip"
+  Apply all that fit. "medical" = air ambulance / hospital transport / organ
+  flight. "police" = law enforcement, border control, customs aviation.
 - annotation: one English sentence explaining why interesting; "" if score ≤ 3
 
 Return a JSON object with "results" — an array in the same order as the input.
