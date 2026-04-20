@@ -77,7 +77,9 @@ STRUKTUR — genau diese vier Abschnitte:
 <b>✈️ Highlights des Tages</b>
 2-3 Absätze über die interessantesten Flugzeuge (hohe Scores, military, private jets,
 exotische Operator, Notfall-Squawks). Ein Absatz pro Highlight. Nur hier: individuelle
-Kennzeichen oder Registrierungen nennen. Erkläre bei jedem Highlight, was das
+Kennzeichen oder Registrierungen nennen.
+Nutze das Flaggen-Emoji (aus "flag" Feld, ISO-Code → Emoji, z.B. "DE"→🇩🇪)
+vor Flugzeugnamen. Erkläre bei jedem Highlight, was das
 Flugzeug ist und warum seine Sichtung hier ungewöhnlich oder erwähnenswert ist.
 
 <b>🌍 Der Überblick</b>
@@ -93,8 +95,11 @@ Genau diese Zeilen mit echten Daten:
 ✈️ Flüge gesichtet: <total_sightings>
 🛬 Verschiedene Flugzeuge: <unique_aircraft>
 🆕 Erstbesucher: <new_aircraft>
-📏 Weiteste Annäherung: <callsign>, <distance km>
-⛰️ Höchster Flug: <callsign oder Reg>, <altitude m>
+📏 Weiteste Annäherung: <Flaggen-Emoji> <Typ (Operator)> oder <Reg>, <distance km>
+⛰️ Höchster Flug: <Flaggen-Emoji> <Typ (Operator)> oder <Reg>, <altitude m>
+Beispiel: "📏 Weiteste Annäherung: 🇮🇪 Pilatus PC-12 (Babcock), 0,2 km"
+Jeder Kandidat hat ein "flag" Feld (ISO-Ländercode, z.B. "DE", "US", "AE").
+Wandle es in das passende Flaggen-Emoji um (z.B. "DE" → 🇩🇪, "GB" → 🇬🇧).
 Nur wenn > 0 anzeigen (je eigene Zeile):
 🏥 Sanitätsflüge: <medical_count>
 🚔 Polizeiflüge: <police_count>
