@@ -122,8 +122,6 @@ Nur wenn > 0 anzeigen (je eigene Zeile):
 🚔 Polizeiflüge: <police_count>
 
 Falls ein Notfall-Squawk vorhanden: mache ihn zur Eröffnungsgeschichte der Highlights.
-Falls ein Kandidat ein photo-Objekt hat: verwende photo_url für das Ausgabefeld und
-schreibe eine kurze photo_caption (z.B. "📸 D-ABCD — Airbus A320, Lufthansa").
 
 Die Eingabe ist ein JSON-Objekt mit den Feldern "stats" und "candidates".
 """.strip()
@@ -199,8 +197,6 @@ def format_airline_stats(stats: AirlineStats) -> str:
 
 class _DigestOutputModel(BaseModel):
     text: str
-    photo_url: str | None = None
-    photo_caption: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -274,15 +270,16 @@ class _GeminiDigestClient:
                 if text is None:
                     continue
                 result = _DigestOutputModel.model_validate_json(text)
+                selected_photo = next(iter(photos.values()), None)
                 logger.info(
                     "digest client: digest generated (%d chars, photo=%s)",
                     len(result.text),
-                    bool(result.photo_url),
+                    bool(selected_photo),
                 )
                 return DigestOutput(
                     text=result.text,
-                    photo_url=result.photo_url,
-                    photo_caption=result.photo_caption,
+                    photo_url=selected_photo.url if selected_photo else None,
+                    photo_caption=selected_photo.caption if selected_photo else None,
                 )
 
         raise RuntimeError("digest agent produced no output")
