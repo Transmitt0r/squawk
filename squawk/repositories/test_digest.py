@@ -167,3 +167,51 @@ async def test_cache_allows_different_keys(
         count = await conn.fetchval("SELECT COUNT(*) FROM digests")
 
     assert count == 2
+
+
+# ---------------------------------------------------------------------------
+# get_recent
+# ---------------------------------------------------------------------------
+
+
+async def test_get_recent_empty_when_no_digests(repo: DigestRepository) -> None:
+    result = await repo.get_recent(3, REF_DATE)
+    assert result == []
+
+
+async def test_get_recent_excludes_on_or_after_before_date(
+    repo: DigestRepository,
+) -> None:
+    await repo.cache(REF_DATE, N_DAYS, DIGEST)
+
+    result = await repo.get_recent(3, REF_DATE)
+    assert result == []
+
+
+async def test_get_recent_returns_prior_digests_newest_first(
+    repo: DigestRepository,
+) -> None:
+    d1 = DigestOutput(text="Digest A", photo_url=None, photo_caption=None)
+    d2 = DigestOutput(text="Digest B", photo_url=None, photo_caption=None)
+    d3 = DigestOutput(text="Digest C", photo_url=None, photo_caption=None)
+
+    date_a = REF_DATE - datetime.timedelta(days=14)
+    date_b = REF_DATE - datetime.timedelta(days=7)
+    date_c = REF_DATE - datetime.timedelta(days=1)
+
+    await repo.cache(date_a, 1, d1)
+    await repo.cache(date_b, 1, d2)
+    await repo.cache(date_c, 1, d3)
+
+    result = await repo.get_recent(3, REF_DATE)
+    assert result == ["Digest C", "Digest B", "Digest A"]
+
+
+async def test_get_recent_respects_n_limit(repo: DigestRepository) -> None:
+    for i in range(5):
+        date = REF_DATE - datetime.timedelta(days=i + 1)
+        d = DigestOutput(text=f"Digest {i}", photo_url=None, photo_caption=None)
+        await repo.cache(date, 1, d)
+
+    result = await repo.get_recent(3, REF_DATE)
+    assert len(result) == 3

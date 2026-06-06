@@ -207,7 +207,7 @@ def pre_filter_score(
         )
 
     if merged is not None and merged.mil:
-        return ScoreResult(score=7, tags=[StoryTag.MILITARY], annotation="")
+        return ScoreResult(score=5, tags=[StoryTag.MILITARY], annotation="")
 
     if merged is not None and _is_routine_operator(merged.operator):
         icao = merged.icao_type

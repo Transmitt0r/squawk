@@ -63,8 +63,8 @@ class _MockDigestClient:
         self._output = output or DIGEST_OUTPUT
         self.calls: list[tuple] = []
 
-    async def generate(self, candidates, stats, photos):
-        self.calls.append((candidates, stats, photos))
+    async def generate(self, candidates, stats, photos, recent_digests):
+        self.calls.append((candidates, stats, photos, recent_digests))
         return self._output
 
 
@@ -309,7 +309,7 @@ async def test_generate_digest_fresh(
     )
 
     assert len(digest_client.calls) == 1
-    candidates, stats, photos = digest_client.calls[0]
+    candidates, stats, photos, recent_digests = digest_client.calls[0]
     assert len(candidates) == 1
     assert candidates[0]["hex"] == "aaa111"
     assert stats["total_sightings"] == 1
@@ -449,9 +449,47 @@ async def test_generate_digest_fetches_photos_for_top_candidates(
 
     assert set(photo_client.calls) == {"aaa111", "bbb222"}
 
-    _, _, photos = digest_client.calls[0]
+    _, _, photos, _ = digest_client.calls[0]
     assert "aaa111" in photos
     assert photos["aaa111"].url == "https://example.com/aaa111.jpg"
+
+
+async def test_generate_digest_passes_recent_digests(
+    pool: asyncpg.Pool,
+    digest_repo: DigestRepository,
+    query: DigestQuery,
+    chart_query: ChartQuery,
+) -> None:
+    await _seed_data(pool)
+
+    # Seed two prior digests before today's reference date.
+    now = datetime.now(tz=timezone.utc)
+    prior_date_1 = (now - timedelta(days=2)).date()
+    prior_date_2 = (now - timedelta(days=1)).date()
+    older = DigestOutput(text="Older digest.", photo_url=None, photo_caption=None)
+    newer = DigestOutput(text="Newer digest.", photo_url=None, photo_caption=None)
+    await digest_repo.cache(prior_date_1, 1, older)
+    await digest_repo.cache(prior_date_2, 1, newer)
+
+    digest_client = _MockDigestClient()
+    broadcaster = _MockBroadcaster()
+
+    await generate_digest(
+        query=query,
+        chart_query=chart_query,
+        digest_repo=digest_repo,
+        photo_client=_MockPhotoClient(),
+        digest_client=digest_client,
+        broadcaster=broadcaster,
+        period_start=now - timedelta(days=7),
+        period_end=now,
+        force=True,
+    )
+
+    assert len(digest_client.calls) == 1
+    _, _, _, recent_digests = digest_client.calls[0]
+    # Newest first, both prior digests included.
+    assert recent_digests == ["Newer digest.", "Older digest."]
 
 
 # ---------------------------------------------------------------------------

@@ -64,6 +64,25 @@ class DigestRepository:
             return None
         return DigestOutput(text=row["content"], photo_url=None, photo_caption=None)
 
+    async def get_recent(
+        self,
+        n: int,
+        before_date: datetime.date,
+    ) -> list[str]:
+        """Return up to N digest texts strictly before before_date, newest first."""
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT content FROM digests
+                WHERE reference_date < $1
+                ORDER BY reference_date DESC
+                LIMIT $2
+                """,
+                before_date,
+                n,
+            )
+        return [row["content"] for row in rows]
+
     async def cache(
         self,
         reference_date: datetime.date,
