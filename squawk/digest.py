@@ -399,7 +399,9 @@ async def generate_digest(
 
     # Generate digest.
     try:
-        digest = await digest_client.generate(candidate_dicts, stats_dict, photos, recent_digests)
+        digest = await digest_client.generate(
+            candidate_dicts, stats_dict, photos, recent_digests
+        )
     except Exception:
         logger.exception("generate_digest: generation failed; skipping")
         return
