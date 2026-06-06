@@ -63,8 +63,8 @@ class _MockDigestClient:
         self._output = output or DIGEST_OUTPUT
         self.calls: list[tuple] = []
 
-    async def generate(self, candidates, stats, photos):
-        self.calls.append((candidates, stats, photos))
+    async def generate(self, candidates, stats, photos, recent_digests):
+        self.calls.append((candidates, stats, photos, recent_digests))
         return self._output
 
 

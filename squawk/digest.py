@@ -108,6 +108,11 @@ story_tags. Beispiele für Muster:
 - Wie verteilen sich story_tags (medical, cargo, bizjet, military)?
 Zahlen und konkrete Beispiele nennen, nicht vage bleiben.
 KEINE Einzelauflistung von Flügen — zusammenfassen und verbinden.
+Falls `recent_digests` im Input vorhanden und nicht leer: Füge einen knappen
+Trendhinweis ein — z.B. wiederholte Muster, Vergleiche zum Vortag oder
+auffällige Veränderungen ('Zum zweiten Mal in Folge...', 'Verglichen mit
+gestern...'). Maximal ein bis zwei Sätze; weglassen wenn nichts Relevantes
+erkennbar ist. Beschreibe keine einzelnen Flugzeuge aus früheren Digests erneut.
 
 <b>🆕 Neue Gesichter</b>
 2-3 der interessantesten Erstbesucher. Falls keine interessanten dabei, ein kurzer Satz.
@@ -128,7 +133,8 @@ Nur wenn > 0 anzeigen (je eigene Zeile):
 
 Falls ein Notfall-Squawk vorhanden: mache ihn zur Eröffnungsgeschichte der Highlights.
 
-Die Eingabe ist ein JSON-Objekt mit den Feldern "stats" und "candidates".
+Die Eingabe ist ein JSON-Objekt mit den Feldern "stats", "candidates" und
+optional "recent_digests" (Liste der letzten Digests als Text, neuester zuerst).
 """.strip()
 
 
@@ -150,6 +156,7 @@ class DigestClient(Protocol):
         candidates: list[dict],
         stats: dict,
         photos: dict[str, PhotoInfo],
+        recent_digests: list[str],
     ) -> DigestOutput: ...
 
 
@@ -225,6 +232,7 @@ class _GeminiDigestClient:
         candidates: list[dict],
         stats: dict,
         photos: dict[str, PhotoInfo],
+        recent_digests: list[str],
     ) -> DigestOutput:
         # Embed photo data into candidate dicts for candidates that have photos.
         enriched_candidates = []
@@ -238,7 +246,11 @@ class _GeminiDigestClient:
                 enriched_candidates.append(c)
 
         data_packet = json.dumps(
-            {"stats": stats, "candidates": enriched_candidates},
+            {
+                "stats": stats,
+                "candidates": enriched_candidates,
+                "recent_digests": recent_digests,
+            },
             ensure_ascii=False,
             default=str,
         )
@@ -376,9 +388,16 @@ async def generate_digest(
                 "generate_digest: photo lookup failed for hex=%s", candidate.hex
             )
 
+    # Fetch recent digests for trend commentary (best-effort).
+    try:
+        recent_digests = await digest_repo.get_recent(3, reference_date)
+    except Exception:
+        logger.warning("generate_digest: failed to fetch recent digests; proceeding without")
+        recent_digests = []
+
     # Generate digest.
     try:
-        digest = await digest_client.generate(candidate_dicts, stats_dict, photos)
+        digest = await digest_client.generate(candidate_dicts, stats_dict, photos, recent_digests)
     except Exception:
         logger.exception("generate_digest: generation failed; skipping")
         return
