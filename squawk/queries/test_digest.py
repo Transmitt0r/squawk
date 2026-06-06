@@ -637,13 +637,13 @@ async def test_get_airline_stats_top_operators(
     for i in range(3):
         hex_ = f"lh{i:03d}"
         await _insert_aircraft(pool, hex_)
-        await _insert_sighting(pool, hex_, callsign="LH100")
+        await _insert_sighting(pool, hex_, callsign=f"LH10{i}")
         await _insert_enrichment(pool, hex_, operator="Lufthansa")
 
     for i in range(2):
         hex_ = f"ry{i:03d}"
         await _insert_aircraft(pool, hex_)
-        await _insert_sighting(pool, hex_, callsign="FR100")
+        await _insert_sighting(pool, hex_, callsign=f"FR10{i}")
         await _insert_enrichment(pool, hex_, operator="Ryanair")
 
     await _insert_route(

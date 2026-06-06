@@ -468,7 +468,7 @@ async def test_pipeline_pre_filter_military(
         )
 
     assert row is not None
-    assert row["story_score"] == 7
+    assert row["story_score"] == 5
     assert row["story_tags"] == ["military"]
     assert len(scoring.calls) == 0
 

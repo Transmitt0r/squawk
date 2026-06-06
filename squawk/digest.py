@@ -392,7 +392,9 @@ async def generate_digest(
     try:
         recent_digests = await digest_repo.get_recent(3, reference_date)
     except Exception:
-        logger.warning("generate_digest: failed to fetch recent digests; proceeding without")
+        logger.warning(
+            "generate_digest: failed to fetch recent digests; proceeding without"
+        )
         recent_digests = []
 
     # Generate digest.

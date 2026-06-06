@@ -309,7 +309,7 @@ async def test_generate_digest_fresh(
     )
 
     assert len(digest_client.calls) == 1
-    candidates, stats, photos = digest_client.calls[0]
+    candidates, stats, photos, recent_digests = digest_client.calls[0]
     assert len(candidates) == 1
     assert candidates[0]["hex"] == "aaa111"
     assert stats["total_sightings"] == 1
@@ -449,7 +449,7 @@ async def test_generate_digest_fetches_photos_for_top_candidates(
 
     assert set(photo_client.calls) == {"aaa111", "bbb222"}
 
-    _, _, photos = digest_client.calls[0]
+    _, _, photos, _ = digest_client.calls[0]
     assert "aaa111" in photos
     assert photos["aaa111"].url == "https://example.com/aaa111.jpg"
 
