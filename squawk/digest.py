@@ -91,6 +91,11 @@ Beispiel: "🇸🇪 Gulfstream IV der schwedischen Luftwaffe" statt
 Nutze das Flaggen-Emoji (aus "flag" Feld, ISO-Code → Emoji, z.B. "DE"→🇩🇪).
 Erkläre bei jedem Highlight, was das
 Flugzeug ist und warum seine Sichtung hier ungewöhnlich oder erwähnenswert ist.
+VIELFALT: Wähle maximal ein bis zwei Flugzeuge aus dem Militär- oder Staatsbereich —
+auch wenn viele Kandidaten militärisch sind. Bevorzuge eine Mischung aus
+verschiedenen Kategorien (z.B. seltener Frachtflieger, exotischer Businessjet,
+ungewöhnliche Route, Notfall-Squawk). Wiederhole keine Kategorie, wenn
+interessantere Alternativen vorhanden sind.
 
 <b>🌍 Der Überblick</b>
 2-3 Absätze die Muster und Zusammenhänge aus ALLEN Kandidaten ziehen.

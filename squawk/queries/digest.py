@@ -303,24 +303,18 @@ class DigestQuery:
         async with self._pool.acquire() as conn:
             departures = await conn.fetch(
                 """
-                WITH recent AS (
-                    SELECT
-                        s.hex,
-                        MODE() WITHIN GROUP (ORDER BY s.callsign) AS most_used_callsign
-                    FROM sightings s
-                    WHERE s.started_at > now() - $1 * interval '1 day'
-                    GROUP BY s.hex
-                )
                 SELECT
                     cr.dest_city    AS city,
                     cr.dest_country AS country,
-                    COUNT(*)        AS cnt
-                FROM recent r
-                JOIN enriched_aircraft ea ON ea.hex = r.hex
-                JOIN callsign_routes cr ON cr.callsign = r.most_used_callsign
-                WHERE LOWER(ea.operator) LIKE ANY($2::text[])
+                    COUNT(DISTINCT s.callsign) AS cnt
+                FROM sightings s
+                JOIN enriched_aircraft ea ON ea.hex = s.hex
+                JOIN callsign_routes cr ON cr.callsign = s.callsign
+                WHERE s.started_at > now() - $1 * interval '1 day'
+                  AND LOWER(ea.operator) LIKE ANY($2::text[])
                   AND cr.origin_iata = $3
                   AND cr.dest_city IS NOT NULL
+                  AND s.callsign IS NOT NULL
                 GROUP BY cr.dest_city, cr.dest_country
                 ORDER BY cnt DESC
                 LIMIT 5
@@ -332,24 +326,18 @@ class DigestQuery:
 
             arrivals = await conn.fetch(
                 """
-                WITH recent AS (
-                    SELECT
-                        s.hex,
-                        MODE() WITHIN GROUP (ORDER BY s.callsign) AS most_used_callsign
-                    FROM sightings s
-                    WHERE s.started_at > now() - $1 * interval '1 day'
-                    GROUP BY s.hex
-                )
                 SELECT
                     cr.origin_city    AS city,
                     cr.origin_country AS country,
-                    COUNT(*)          AS cnt
-                FROM recent r
-                JOIN enriched_aircraft ea ON ea.hex = r.hex
-                JOIN callsign_routes cr ON cr.callsign = r.most_used_callsign
-                WHERE LOWER(ea.operator) LIKE ANY($2::text[])
+                    COUNT(DISTINCT s.callsign) AS cnt
+                FROM sightings s
+                JOIN enriched_aircraft ea ON ea.hex = s.hex
+                JOIN callsign_routes cr ON cr.callsign = s.callsign
+                WHERE s.started_at > now() - $1 * interval '1 day'
+                  AND LOWER(ea.operator) LIKE ANY($2::text[])
                   AND cr.dest_iata = $3
                   AND cr.origin_city IS NOT NULL
+                  AND s.callsign IS NOT NULL
                 GROUP BY cr.origin_city, cr.origin_country
                 ORDER BY cnt DESC
                 LIMIT 5
@@ -361,21 +349,14 @@ class DigestQuery:
 
             operators = await conn.fetch(
                 """
-                WITH recent AS (
-                    SELECT
-                        s.hex,
-                        MODE() WITHIN GROUP (ORDER BY s.callsign) AS most_used_callsign
-                    FROM sightings s
-                    WHERE s.started_at > now() - $1 * interval '1 day'
-                    GROUP BY s.hex
-                )
                 SELECT
-                    ea.operator AS operator,
-                    COUNT(*)     AS cnt
-                FROM recent r
-                JOIN enriched_aircraft ea ON ea.hex = r.hex
-                JOIN callsign_routes cr ON cr.callsign = r.most_used_callsign
-                WHERE LOWER(ea.operator) LIKE ANY($2::text[])
+                    ea.operator,
+                    COUNT(DISTINCT s.callsign) AS cnt
+                FROM sightings s
+                JOIN enriched_aircraft ea ON ea.hex = s.hex
+                WHERE s.started_at > now() - $1 * interval '1 day'
+                  AND LOWER(ea.operator) LIKE ANY($2::text[])
+                  AND s.callsign IS NOT NULL
                 GROUP BY ea.operator
                 ORDER BY cnt DESC
                 LIMIT 3
@@ -386,37 +367,34 @@ class DigestQuery:
 
             longest = await conn.fetchrow(
                 """
-                WITH recent AS (
-                    SELECT
-                        s.hex,
-                        MODE() WITHIN GROUP (ORDER BY s.callsign) AS most_used_callsign
-                    FROM sightings s
-                    WHERE s.started_at > now() - $1 * interval '1 day'
-                    GROUP BY s.hex
-                )
                 SELECT
-                    r.most_used_callsign AS callsign,
-                    ea.operator,
-                    cr.origin_city,
-                    cr.dest_city,
-                    (
-                        6371 * acos(
-                            least(1.0,
-                                cos(radians(cr.origin_lat))
-                                * cos(radians(cr.dest_lat))
-                                * cos(radians(cr.dest_lon) - radians(cr.origin_lon))
-                                + sin(radians(cr.origin_lat))
-                                * sin(radians(cr.dest_lat))
+                    s.callsign,
+                    MAX(ea.operator) AS operator,
+                    MAX(cr.origin_city) AS origin_city,
+                    MAX(cr.dest_city) AS dest_city,
+                    MAX(
+                        (
+                            6371 * acos(
+                                least(1.0,
+                                    cos(radians(cr.origin_lat))
+                                    * cos(radians(cr.dest_lat))
+                                    * cos(radians(cr.dest_lon) - radians(cr.origin_lon))
+                                    + sin(radians(cr.origin_lat))
+                                    * sin(radians(cr.dest_lat))
+                                )
                             )
-                        )
-                    )::int AS distance_km
-                FROM recent r
-                JOIN enriched_aircraft ea ON ea.hex = r.hex
-                JOIN callsign_routes cr ON cr.callsign = r.most_used_callsign
-                WHERE cr.origin_lat IS NOT NULL
+                        )::int
+                    ) AS distance_km
+                FROM sightings s
+                JOIN enriched_aircraft ea ON ea.hex = s.hex
+                JOIN callsign_routes cr ON cr.callsign = s.callsign
+                WHERE s.started_at > now() - $1 * interval '1 day'
+                  AND cr.origin_lat IS NOT NULL
                   AND cr.dest_lat IS NOT NULL
                   AND cr.origin_city IS NOT NULL
                   AND cr.dest_city IS NOT NULL
+                  AND s.callsign IS NOT NULL
+                GROUP BY s.callsign
                 ORDER BY distance_km DESC
                 LIMIT 1
                 """,
