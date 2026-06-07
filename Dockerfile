@@ -2,7 +2,7 @@ FROM python:3.13-slim
 
 ARG TARGETARCH
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-ADD https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-${TARGETARCH} /usr/local/bin/dbmate
+ADD https://github.com/amacneil/dbmate/releases/download/v2.26.0/dbmate-linux-${TARGETARCH} /usr/local/bin/dbmate
 RUN chmod +x /usr/local/bin/dbmate
 
 WORKDIR /app
